@@ -1,0 +1,10 @@
+config TEGRA_GPIO_HOST_PROXY
+	#depends on GPIO_TEGRA GPIO_TEGRA186
+	bool "Tegra GPIO host proxy support"
+	help
+	Exposes the GPIO capabilities __iomem to the user space, in order to support the 
+	GPIO passthrough to virtual machines.
+
+	Say Y here to enable this driver and to compile this driver as a module, 
+	choose M here. If unsure, say N
+

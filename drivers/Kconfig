@@ -1,0 +1,8 @@
+append_menu "Device Drivers"
+
+if ARCH_TEGRA
+source "drivers/gpio-host-proxy/Kconfig"
+source "drivers/gpio-guest-proxy/Kconfig"
+endif
+
+endmenu
