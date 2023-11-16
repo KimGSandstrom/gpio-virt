@@ -1,5 +1,5 @@
 config TEGRA_GPIO_GUEST_PROXY
-	#depends on GPIO_TEGRA GPIO_TEGRA186
+	depends on GPIO_TEGRA && GPIO_TEGRA186
 	bool "Tegra GPIO guest proxy driver"
 	help
 	The Tegra GPIO guest proxy driver, virtualise GPIO __iomem initalised by host, 

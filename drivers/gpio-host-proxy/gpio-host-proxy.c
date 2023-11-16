@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/*
- * Copyright (c) 2016-2022 NVIDIA Corporation
+/**
+ * NVIDIA GPIO Guest Proxy Kernel Module
+ * (c) 2023 Unikie, Oy
+ * (c) 2023 Kim Sandstrom kim.sandstrom@unikie.com
  *
- * Author: Thierry Reding <treding@nvidia.com>
- */
+ **/
 
 #include <linux/gpio/driver.h>
 #include <linux/interrupt.h>
@@ -256,7 +257,7 @@ static inline void tegra_gte_writel(struct tegra_gpio *tgi, u32 reg,
 	__raw_writel(val, tgi->gte_regs + reg);
 }
 
-// most tegra_*() functions removed. 
+// most tegra_*() functions removed.
 // Makes sense to use functions in stock driver ?
 
 /*****************************************************************/
@@ -302,7 +303,7 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	if (!gpio)
 		return -ENOMEM;
 
-	// we shall virtualise 'gpio' 
+	// we shall virtualise 'gpio'
 	// this is host code !!!
 	// host has been set up by stock tegra driver (initialisations, irq, everything)
 
@@ -314,15 +315,15 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 
 	gpio = tegra_gpio_host;
 	err = copy_to_user(tegra_gpio_virtual, gpio, sizeof(tegra_gpio_host));		// the full struct will contain needed irq data ?
-	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 1 copy_to_user error %d", __func__, err); 
+	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 1 copy_to_user error %d", __func__, err);
 	err = copy_to_user(secure_virtual, gpio->secure, gpio->soc->num_ports * 0x1000 + 0x1800);
-	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 2 copy_to_user error %d", __func__, err); 
+	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 2 copy_to_user error %d", __func__, err);
 	// err = copy_to_user(base_virtual, gpio->base, xxx);		// for now I can't find size -- maybe pointer alone is enough?
-	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err); 
+	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
 	// err = copy_to_user(gte_regs_virtual, gpio->gte_regs, xxx); // for now I can't find size -- maybe pointer alone is enough?
-	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err); 
+	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
 	err = copy_to_user(irq_virtual, gpio->irq, gpio->num_irq * sizeof(*gpio->irq));
-	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 3 copy_to_user error %d", __func__, err); 
+	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 3 copy_to_user error %d", __func__, err);
 
 	tegra_gpio_virtual->secure = secure_virtual;
 	tegra_gpio_virtual->base = base_virtual;
@@ -342,7 +343,7 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	// -----------------------------------------------
 
 /* this code would never be executed any how -- to be removed
-	
+
 	gpio->soc = of_device_get_match_data(&pdev->dev);
 	gpio->gpio.label = gpio->soc->name;
 	gpio->gpio.parent = &pdev->dev;
@@ -352,7 +353,7 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 		return PTR_ERR(gpio->secure);
 */
 	/* count the number of banks in the controller */
-/* 
+/*
  	for (i = 0; i < gpio->soc->num_ports; i++)
 		if (gpio->soc->ports[i].bank > gpio->num_banks)
 			gpio->num_banks = gpio->soc->ports[i].bank;
@@ -488,7 +489,7 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	* but it also requires a more complicated interrupt routing than we
 	* currently program.
 	*/
-/* this code would never be executed any how -- to be removed 
+/* this code would never be executed any how -- to be removed
 	if (gpio->num_irqs_per_bank > 1) {
 		irq->parents = devm_kcalloc(&pdev->dev, gpio->num_banks,
 						sizeof(*irq->parents), GFP_KERNEL);
@@ -568,7 +569,7 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 */
 }
 /* functions removed as probably unecessary
- * we can call the implementation in the stock driver 
+ * we can call the implementation in the stock driver
  *
 #ifdef CONFIG_PM_SLEEP
 static int tegra_gpio_resume_early(struct device *dev)
@@ -942,24 +943,25 @@ static const struct of_device_id tegra186_gpio_of_match[] = {
 MODULE_DEVICE_TABLE(of, tegra186_gpio_of_match);
 */
 
-// use values from stock code in gpio-tegra186.c
-extern struct platform_driver tegra186_gpio_driver;
-static struct platform_driver tegra186_gpio_host_driver;
+static struct platform_driver tegra186_gpio_host_proxy;
 
 // Initialization function
 static int __init copymemory(void) {
-	// Use memcpy to initialise tegra186_gpio_host_driver 
-	memcpy(&tegra186_gpio_host_driver, &tegra186_gpio_driver, sizeof(tegra186_gpio_driver));
+	// use values from stock code in gpio-tegra186.c
+	extern struct platform_driver tegra186_gpio_driver;
 
-	tegra186_gpio_host_driver.driver.name = "tegra186-host-gpio";
-	tegra186_gpio_host_driver.probe = tegra186_gpio_probe;
-	tegra186_gpio_host_driver.remove = tegra186_gpio_remove;
+	// Use memcpy to initialise tegra186_gpio_host_proxy
+	memcpy(&tegra186_gpio_host_proxy, &tegra186_gpio_driver, sizeof(tegra186_gpio_driver));
+
+	tegra186_gpio_host_proxy.driver.name = "tegra186-host-gpio";
+	tegra186_gpio_host_proxy.probe = tegra186_gpio_probe;
+	tegra186_gpio_host_proxy.remove = tegra186_gpio_remove;
 
 	return 0;
 }
 
 module_init(copymemory);
-module_platform_driver(tegra186_gpio_host_driver);
+builtin_platform_driver(tegra186_gpio_host_proxy);
 
 MODULE_DESCRIPTION("NVIDIA Tegra186 GPIO host driver");
 MODULE_AUTHOR("Kim Sandström <kim.sandstrom@unikie.com>");
