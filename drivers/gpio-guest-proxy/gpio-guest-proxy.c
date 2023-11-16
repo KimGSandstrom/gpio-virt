@@ -1675,17 +1675,25 @@ static const struct of_device_id tegra186_gpio_of_match[] = {
 };
 MODULE_DEVICE_TABLE(of, tegra186_gpio_of_match);
 
-static struct platform_driver tegra186_gpio_driver = {
-	.driver = {
-		.name = "tegra186-guest-gpio",
-		.of_match_table = tegra186_gpio_of_match,
-		.pm = TEGRA_GPIO_PM,
-	},
-	.probe = tegra186_gpio_probe,
-	.remove = tegra186_gpio_remove,
-};
-module_platform_driver(tegra186_gpio_driver);
+// use values from stock code in gpio-tegra186.c
+extern struct platform_driver tegra186_gpio_driver;
+static struct platform_driver tegra186_gpio_guest_driver;
 
-MODULE_DESCRIPTION("NVIDIA Tegra186 GPIO controller driver");
-MODULE_AUTHOR("Thierry Reding <treding@nvidia.com>");
+// Initialization function
+static int __init copymemory(void) {
+	// Use memcpy to initialise tegra186_gpio_guest_driver 
+	memcpy(&tegra186_gpio_guest_driver, &tegra186_gpio_driver, sizeof(tegra186_gpio_driver));
+
+	tegra186_gpio_guest_driver.driver.name = "tegra186-guest-gpio";
+	tegra186_gpio_guest_driver.probe = tegra186_gpio_probe;
+	tegra186_gpio_guest_driver.remove = tegra186_gpio_remove;
+
+	return 0;
+}
+
+module_init(copymemory);
+module_platform_driver(tegra186_gpio_guest_driver);
+
+MODULE_DESCRIPTION("NVIDIA Tegra186 GPIO guest driver");
+MODULE_AUTHOR("Kim Sandström <kim.sandstrom@unikie.com>");
 MODULE_LICENSE("GPL v2");
