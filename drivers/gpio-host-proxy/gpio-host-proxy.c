@@ -234,11 +234,9 @@ struct tegra_gpio {
 };
 
 // variables for virtualisaton
-extern struct tegra_gpio *gpio_vpa;
-extern struct tegra_gpio *tegra_gpio_host;
-extern void __iomem *secure_virtual;
-extern void __iomem *base_virtual;
-extern void __iomem *gte_regs_virtual;
+extern uint64_t gpio_vpa;
+struct tegra_gpio *tegra_gpio_host;
+EXPORT_SYMBOL_GPL(tegra_gpio_host);
 
 /*************************** GTE related code ********************/
 
@@ -948,10 +946,10 @@ static struct platform_driver tegra186_gpio_host_proxy;
 // Initialization function
 static int __init copymemory(void) {
 	// use values from stock code in gpio-tegra186.c
-	extern struct platform_driver tegra186_gpio_driver;
+	extern void * (*cpy_tegra186_gpio_driver)(struct platform_driver *);
 
 	// Use memcpy to initialise tegra186_gpio_host_proxy
-	memcpy(&tegra186_gpio_host_proxy, &tegra186_gpio_driver, sizeof(tegra186_gpio_driver));
+	cpy_tegra186_gpio_driver(&tegra186_gpio_host_proxy);
 
 	tegra186_gpio_host_proxy.driver.name = "tegra186-host-gpio";
 	tegra186_gpio_host_proxy.probe = tegra186_gpio_probe;

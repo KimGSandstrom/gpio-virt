@@ -231,12 +231,12 @@ struct tegra_gpio {
 	void __iomem *gte_regs;
 	struct tegra_gpio_saved_register *gpio_rval;
 };
-
+//
 
 // virtualisation memory (for: tegra_gpio *gpio)
-// extern uint64_t gpio_vpa;
+extern uint64_t gpio_vpa;
 const int vpamem = 222222;
-extern struct tegra_gpio *gpio_vpa;
+extern void (*preset_gpio)(struct tegra_gpio *);
 // static volatile void __iomem *mem_iova = NULL;
 
 extern void __iomem *secure_vpa;
@@ -277,31 +277,27 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	if (!gpio)
 		return -ENOMEM;
 
-	// we shall virtualise 'gpio' and transfer the memory segment between guest and host using 'gpio_vpa'
+	// we shall virtualise 'gpio' and transfer the memory segment between guest and host using 'preset_gpio'
 	// my first try at this will be without copying memory. (Will fail at memory protection or access collision?)
-	gpio_vpa = ioremap(vpamem, sizeof(struct tegra_gpio));
-	if (!gpio_vpa) {
-        	printk(KERN_DEBUG "ioremap failed in %s, file %s\n", __func__, __FILE__);
-        	return -ENOMEM;
-	}
-	// this code does not look good -- overlapping ideas ... what does ioremap() do really?
-	// we are copying hosts initialisation from passthough gpio_vpa into gpio
-	memcpy(gpio, gpio_vpa, sizeof(struct tegra_gpio));
-
-
-	///is ioremap or copy needed? can ve use gpio_vpa directly?
-	// like this without ioremap():
-	// gpio = gpio_vpa;
 	//
-	///we should copy during operation?
-	// this how it was done in bpmp:
+	// this code does not look good -- overlapping ideas
+	// we are copying hosts initialisation from passthough preset_gpio into gpio
+	// temporary debug workaround (while no true passthrough)
+	preset_gpio(gpio);
+	// is ioremap?
+	
+	// we should copy during operation?
+	// readl() and writel() functions
+	//
+	// A completely different issue:
+	// this how it was done in bpmp
 	// mem_iova = ioremap(gpio_vpa, MEM_SIZE);
         // if (!mem_iova) {
         // 	deb_error("ioremap failed\n");
         // return -ENOMEM;
-	///or this
-	// memcpy(gpio_vpa, gpio, sizeof(tegra_gpio));
 
+// debug test
+gpio_vpa = 0;
 
 	// this is guest code !!!
 	// gpio is already initialised in the host
@@ -314,8 +310,6 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	// [...]
 	// TODO
 
-	// temporary debug workaround (while no true passthrough)
-	memcpy(gpio, gpio_vpa, sizeof(struct tegra_gpio));
 
 	// gpio already set up by host -- gte-function
 	// for now we let that be while we do fake passthrough
@@ -718,10 +712,10 @@ static struct platform_driver tegra186_gpio_guest_proxy;
 // Initialization function
 static int __init copymemory(void) {
 	// use values from stock code in gpio-tegra186.c
-	extern struct platform_driver tegra186_gpio_driver;
+	extern void * (*cpy_tegra186_gpio_driver)(struct platform_driver *);
 
 	// Use memcpy to initialise tegra186_gpio_guest_proxy
-	memcpy(&tegra186_gpio_guest_proxy, &tegra186_gpio_driver, sizeof(tegra186_gpio_driver));
+	cpy_tegra186_gpio_driver(&tegra186_gpio_guest_proxy);
 
 	tegra186_gpio_guest_proxy.driver.name = "tegra186-guest-gpio";
 	tegra186_gpio_guest_proxy.probe = tegra186_gpio_probe;
