@@ -239,12 +239,12 @@ extern const int vpamem;
 
 
 // TODO: we need to double these elements, one set of elements for each gpio chip.
-extern void * (*cpy_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
-extern void * (*cpy_preset_gpio)(struct tegra_gpio *);
+extern void * (*get_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
+extern void * (*get_preset_gpio)(struct tegra_gpio *, n);
 
 extern struct semaphore *copy_sem_gpio, *copy_sem_driver;	// notifies initialisation done in stock driver
 extern uint64_t gpio_ready_flag, driver_ready_flag;
-static struct tegra_gpio preset_gpio;			// will be initialised to values set by stock driver in host
+static struct tegra_gpio preset_gpio[2];			// will be initialised to values set by stock driver in host
 
 // static volatile void __iomem *mem_iova = NULL;
 
@@ -291,8 +291,9 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	// we are copying hosts initialisation from passthough preset_gpio into gpio
 	// temporary debug workaround (while no true passthrough)
 
-	// Use memcpy to initialise struct tegra_gpio *gpio	
-	memcpy(gpio, &preset_gpio,sizeof(preset_gpio));
+	// Use memcpy to initialise struct tegra_gpio *gpio
+//TODO: we have two gpio chips
+	memcpy(gpio, &preset_gpio[0],sizeof(preset_gpio));
 
 	// we should copy during operation?
 	// readl() and writel() functions
@@ -367,11 +368,13 @@ static int __init copymemory(void) {
 	tegra186_gpio_guest_proxy.remove = tegra186_gpio_remove;
 
 	// initialise preset_gpio
-	while (!gpio_ready_flag)
-		if((err=down_interruptible(copy_sem_gpio)))
-			printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-	cpy_preset_gpio(&preset_gpio);
-	up(copy_sem_gpio);
+	for (n=1, n<=2, n++) {
+		while (!gpio_ready_flag & n)
+			if((err=down_interruptible(copy_sem_gpio)))
+				printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
+		get_preset_gpio(&preset_gpio[n-1], n);
+		up(copy_sem_gpio);
+	}
 
 	return 0;
 }

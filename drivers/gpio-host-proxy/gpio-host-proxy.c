@@ -315,44 +315,56 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 //	void __iomem *base;
 
 	printk(KERN_DEBUG "Debug host gpio %s, file %s", __func__, __FILE__);
-
-	// gpio = devm_kzalloc(&pdev->dev, sizeof(*gpio), GFP_KERNEL);
-	// if (!gpio)
-	//	return -ENOMEM;
-
-	// we shall virtualise 'gpio'
-	// this is host code !!!
-	// host has been set up by stock tegra driver (initialisations, irq, everything)
-
-	// this copying is not fully correct
-	// the physical hardware is accessed from the original addresses
-	// 1) can we export the original devm?
-	// 2) can we provide guest with 'struct tegra_gpio *gpio' only -- physical gpio handled here in host
-	// 3) can it be handled via copy at interaction?
-
-	err = copy_to_user(tegra_gpio_virtual, &preset_gpio, sizeof(struct tegra_gpio));		// the full struct will contain needed irq data ?
-	if (err)  printk(KERN_DEBUG "Debug host gpio %s, 1 copy_to_user error %d", __func__, err);
-	err = copy_to_user(secure_virtual, preset_gpio.secure, preset_gpio.soc->num_ports * 0x1000 + 0x1800);
-	if (err)  printk(KERN_DEBUG "Debug host gpio %s, 2 copy_to_user error %d", __func__, err);
-	// err = copy_to_user(base_virtual, gpio->base, xxx);		// for now I can't find size -- maybe pointer alone is enough?
-	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
-	// err = copy_to_user(gte_regs_virtual, gpio->gte_regs, xxx); // for now I can't find size -- maybe pointer alone is enough?
-	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
-	err = copy_to_user(irq_virtual, preset_gpio.irq, preset_gpio.num_irq * sizeof(*preset_gpio.irq));
-	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 3 copy_to_user error %d", __func__, err);
-
-	tegra_gpio_virtual->secure = secure_virtual;
-	tegra_gpio_virtual->base = base_virtual;
-	tegra_gpio_virtual->gte_regs = gte_regs_virtual;
-	tegra_gpio_virtual->irq = irq_virtual;
-
-	// since this is host code all values and pointers of gpio should be correct
-	// gpio shoud be set up already -- with tegra_gte_setup(gpio);
-        printk(KERN_DEBUG "Debug host proxy gpio %s, label=%s", __func__, preset_gpio.gpio.label);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio at %p", __func__, &preset_gpio);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->secure at %p", __func__, preset_gpio.secure);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->base at %p", __func__, preset_gpio.base);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->gte_regs at %p", __func__, preset_gpio.gte_regs);
+	
+	for (n=1, n<=2, n++) {
+		while (!gpio_ready_flag & n)
+			if((err=down_interruptible(copy_sem_gpio)))
+				printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);				
+		get_preset_gpio(&preset_gpio[n-1], n);
+		up(copy_sem_gpio);
+	
+		// gpio = devm_kzalloc(&pdev->dev, sizeof(*gpio), GFP_KERNEL);
+		// if (!gpio)
+		//	return -ENOMEM;
+	
+		// we shall virtualise 'gpio'
+		// this is host code !!!
+		// host has been set up by stock tegra driver (initialisations, irq, everything)
+	
+		// this copying is not fully correct
+		// the physical hardware is accessed from the original addresses
+		// 1) can we export the original devm?
+		// 2) can we provide guest with 'struct tegra_gpio *gpio' only -- physical gpio handled here in host
+		// 3) can it be handled via copy at interaction?
+	
+		err = copy_to_user(tegra_gpio_virtual, &preset_gpio[n], sizeof(struct tegra_gpio));		// the full struct will contain needed irq data ?
+		if (err)  printk(KERN_DEBUG "Debug host gpio %s, 1 copy_to_user error %d", __func__, err);
+		
+		err = copy_to_user(secure_virtual, preset_gpio[n].secure, preset_gpio[n].soc->num_ports * 0x1000 + 0x1800);
+		if (err)  printk(KERN_DEBUG "Debug host gpio %s, 2 copy_to_user error %d", __func__, err);
+		
+		// err = copy_to_user(base_virtual, gpio->base, xxx);		// for now I can't find size -- maybe pointer alone is enough?
+		// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
+		// err = copy_to_user(gte_regs_virtual, gpio->gte_regs, xxx); // for now I can't find size -- maybe pointer alone is enough?
+		// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
+		
+		err = copy_to_user(irq_virtual, preset_gpio[n].irq, preset_gpio[n].num_irq * sizeof(*preset_gpio[n].irq));
+		if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 3 copy_to_user error %d", __func__, err);
+	
+		tegra_gpio_virtual->secure = secure_virtual;
+		tegra_gpio_virtual->base = base_virtual;
+		tegra_gpio_virtual->gte_regs = gte_regs_virtual;
+		tegra_gpio_virtual->irq = irq_virtual;
+	
+		// since this is host code all values and pointers of gpio should be correct
+		// gpio shoud be set up already -- with tegra_gte_setup(gpio);
+		
+	    printk(KERN_DEBUG "Debug host proxy gpio %s, label=%s", __func__, preset_gpio[n].gpio.label);
+		printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio at %p", __func__, &preset_gpio[n]);
+		printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->secure at %p", __func__, preset_gpio[n].secure);
+		printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->base at %p", __func__, preset_gpio[n].base);
+		printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->gte_regs at %p", __func__, preset_gpio[n].gte_regs);
+	}
 
 	return 0;
 }
@@ -382,7 +394,7 @@ static int __init copymemory(void) {
 	while (!gpio_ready_flag)
 		if((err=down_interruptible(copy_sem_gpio)))
 			printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-	cpy_preset_gpio(&preset_gpio);
+	get_preset_gpio(&preset_gpio);
 	up(copy_sem_gpio);
 
 	return 0;
