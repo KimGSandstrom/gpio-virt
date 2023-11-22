@@ -240,7 +240,7 @@ extern const int vpamem;
 
 // TODO: we need to double these elements, one set of elements for each gpio chip.
 extern void * (*get_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
-extern void * (*get_preset_gpio)(struct tegra_gpio *, n);
+extern void * (*get_preset_gpio)(struct tegra_gpio *, int);
 
 extern struct semaphore *copy_sem_gpio, *copy_sem_driver;	// notifies initialisation done in stock driver
 extern uint64_t gpio_ready_flag, driver_ready_flag;
@@ -368,11 +368,11 @@ static int __init copymemory(void) {
 	tegra186_gpio_guest_proxy.remove = tegra186_gpio_remove;
 
 	// initialise preset_gpio
-	for (n=1, n<=2, n++) {
+	for (n=0, n<=1, n++) {
 		while (!gpio_ready_flag & n)
 			if((err=down_interruptible(copy_sem_gpio)))
 				printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-		get_preset_gpio(&preset_gpio[n-1], n);
+		get_preset_gpio(&preset_gpio[n], n);
 		up(copy_sem_gpio);
 	}
 

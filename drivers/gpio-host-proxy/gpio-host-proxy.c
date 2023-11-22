@@ -239,12 +239,12 @@ extern const int vpamem;
 
 
 // TODO: we need to double these elements, one set of elements for each gpio chip.
-extern void * (*cpy_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
-extern void * (*cpy_preset_gpio)(struct tegra_gpio *);
+extern void * (*get_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
+extern void * (*get_preset_gpio)(struct tegra_gpio *, int);
 
 extern struct semaphore *copy_sem_gpio, *copy_sem_driver;	// notifies initialisation done in stock driver
 extern uint64_t gpio_ready_flag, driver_ready_flag;
-static struct tegra_gpio preset_gpio;			// will be initialised to values set by stock driver in host
+static struct tegra_gpio preset_gpio[2];			// will be initialised to values set by stock driver in host
 
 // static volatile void __iomem *mem_iova = NULL;
 
@@ -309,18 +309,18 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	struct resource *res;
 	char **names;
 */
-	int err;
+	int err, n;
 //	int ret;
 //	int value;
 //	void __iomem *base;
 
 	printk(KERN_DEBUG "Debug host gpio %s, file %s", __func__, __FILE__);
 	
-	for (n=1, n<=2, n++) {
-		while (!gpio_ready_flag & n)
+	for (n=0; n<=1; n++) {
+		while (!(gpio_ready_flag & n))
 			if((err=down_interruptible(copy_sem_gpio)))
 				printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);				
-		get_preset_gpio(&preset_gpio[n-1], n);
+		get_preset_gpio(&preset_gpio[n], n);
 		up(copy_sem_gpio);
 	
 		// gpio = devm_kzalloc(&pdev->dev, sizeof(*gpio), GFP_KERNEL);
@@ -376,14 +376,14 @@ static int tegra186_gpio_remove(struct platform_device *pdev)
 
 // Initialization function
 static int __init copymemory(void) {
-	int err;
+	int err, n;
 	// use values from stock code in gpio-tegra186.c
 
 	// initialise platform_driver
 	while (!driver_ready_flag)
 		if((err=down_interruptible(copy_sem_driver)))
 			printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-	cpy_tegra186_gpio_driver(&tegra186_gpio_host_proxy);
+	get_tegra186_gpio_driver(&tegra186_gpio_host_proxy);
 	up(copy_sem_driver);
 
 	tegra186_gpio_host_proxy.driver.name = "tegra186-guest-gpio";
@@ -391,12 +391,13 @@ static int __init copymemory(void) {
 	tegra186_gpio_host_proxy.remove = tegra186_gpio_remove;
 
 	// initialise preset_gpio
-	while (!gpio_ready_flag)
-		if((err=down_interruptible(copy_sem_gpio)))
-			printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-	get_preset_gpio(&preset_gpio);
+	for (n=0; n<=1; n++) {
+		while (!(gpio_ready_flag & n))
+			if((err=down_interruptible(copy_sem_gpio)))
+				printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
+		get_preset_gpio(&preset_gpio[n],n);
 	up(copy_sem_gpio);
-
+	}
 	return 0;
 }
 
