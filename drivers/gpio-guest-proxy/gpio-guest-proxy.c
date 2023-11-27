@@ -240,10 +240,8 @@ extern const int vpamem;
 
 // TODO: we need to double these elements, one set of elements for each gpio chip.
 extern void * (*get_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
-extern void * (*get_preset_gpio)(struct tegra_gpio *, int);
+extern void * (*get_preset_gpio)(struct tegra_gpio *);
 
-extern struct semaphore *copy_sem_gpio, *copy_sem_driver;	// notifies initialisation done in stock driver
-extern uint64_t gpio_ready_flag, driver_ready_flag;
 static struct tegra_gpio preset_gpio[2];			// will be initialised to values set by stock driver in host
 
 // static volatile void __iomem *mem_iova = NULL;
@@ -254,6 +252,9 @@ extern void __iomem *gte_regs_vpa;
 
 // this var is used temproarily while we have no true passthrough
 static struct platform_driver tegra186_gpio_guest_proxy;
+
+static int (* tegra186_gpio_get_hook)(struct gpio_chip *, unsigned int) = NULL;
+static void (* tegra186_gpio_set_hook)(struct gpio_chip *, unsigned int) = NULL;
 
 /*************************** GTE related code ********************/
 
@@ -269,6 +270,254 @@ static const struct of_device_id tegra186_pmc_of_match[] = {
 
 static int tegra186_gpio_probe(struct platform_device *pdev)
 {
+	unsigned int i, j, offset;
+	struct gpio_irq_chip *irq;
+	struct tegra_gpio *gpio;
+	struct device_node *np;
+	struct resource *res;
+	char **names;
+	int err;
+	int ret;
+	int value;
+	void __iomem *base;
+
+	printk(KERN_DEBUG "Debug gpio %s, file %s", __func__, __FILE__);
+
+	gpio = devm_kzalloc(&pdev->dev, sizeof(*gpio), GFP_KERNEL);
+	if (!gpio)
+		return -ENOMEM;
+
+	gpio->soc = of_device_get_match_data(&pdev->dev);
+	gpio->gpio.label = gpio->soc->name;
+	gpio->gpio.parent = &pdev->dev;
+
+	gpio->secure = devm_platform_ioremap_resource_byname(pdev, "security");
+	if (IS_ERR(gpio->secure))
+		return PTR_ERR(gpio->secure);
+
+	/* count the number of banks in the controller */
+	for (i = 0; i < gpio->soc->num_ports; i++)
+		if (gpio->soc->ports[i].bank > gpio->num_banks)
+			gpio->num_banks = gpio->soc->ports[i].bank;
+
+	gpio->num_banks++;
+
+	gpio->base = devm_platform_ioremap_resource_byname(pdev, "gpio");
+	if (IS_ERR(gpio->base))
+		return PTR_ERR(gpio->base);
+
+	gpio->gpio_rval = devm_kzalloc(&pdev->dev, gpio->soc->num_ports * 8 *
+				      sizeof(*gpio->gpio_rval), GFP_KERNEL);
+	if (!gpio->gpio_rval)
+		return -ENOMEM;
+
+	np = pdev->dev.of_node;
+	if (!np) {
+		dev_err(&pdev->dev, "No valid device node, probe failed\n");
+		return -EINVAL;
+	}
+
+	gpio->use_timestamp = of_property_read_bool(np, "use-timestamp");
+
+	if (gpio->use_timestamp) {
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "gte");
+		if (!res) {
+			dev_err(&pdev->dev, "Missing gte MEM resource\n");
+			return -ENODEV;
+		}
+		gpio->gte_regs = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(gpio->gte_regs)) {
+			ret = PTR_ERR(gpio->gte_regs);
+			dev_err(&pdev->dev,
+				"Failed to iomap for gte: %d\n", ret);
+			return ret;
+		}
+	}
+
+	err = platform_irq_count(pdev);
+	if (err < 0)
+		return err;
+
+	gpio->num_irq = err;
+
+	err = tegra186_gpio_irqs_per_bank(gpio);
+	if (err < 0)
+		return err;
+
+	gpio->irq = devm_kcalloc(&pdev->dev, gpio->num_irq, sizeof(*gpio->irq),
+				 GFP_KERNEL);
+	if (!gpio->irq)
+		return -ENOMEM;
+
+	for (i = 0; i < gpio->num_irq; i++) {
+		err = platform_get_irq(pdev, i);
+		if (err < 0)
+			return err;
+
+		gpio->irq[i] = err;
+	}
+
+
+	gpio->gpio.request = gpiochip_generic_request;
+	gpio->gpio.free = gpiochip_generic_free;
+	gpio->gpio.get_direction = tegra186_gpio_get_direction;
+	gpio->gpio.direction_input = tegra186_gpio_direction_input;
+	gpio->gpio.direction_output = tegra186_gpio_direction_output;
+	gpio->gpio.get = tegra186_gpio_get,
+	gpio->gpio.set = tegra186_gpio_set;
+	gpio->gpio.set_config = tegra186_gpio_set_config;
+	gpio->gpio.timestamp_control = tegra_gpio_timestamp_control;
+	gpio->gpio.timestamp_read = tegra_gpio_timestamp_read;
+	gpio->gpio.suspend_configure = tegra_gpio_suspend_configure;
+	gpio->gpio.add_pin_ranges = tegra186_gpio_add_pin_ranges;
+
+	gpio->gpio.base = -1;
+
+	for (i = 0; i < gpio->soc->num_ports; i++)
+		gpio->gpio.ngpio += gpio->soc->ports[i].pins;
+
+	names = devm_kcalloc(gpio->gpio.parent, gpio->gpio.ngpio,
+			     sizeof(*names), GFP_KERNEL);
+	if (!names)
+		return -ENOMEM;
+
+	for (i = 0, offset = 0; i < gpio->soc->num_ports; i++) {
+		const struct tegra_gpio_port *port = &gpio->soc->ports[i];
+		char *name;
+
+		for (j = 0; j < port->pins; j++) {
+			name = devm_kasprintf(gpio->gpio.parent, GFP_KERNEL,
+					      "P%s.%02x", port->name, j);
+			if (!name)
+				return -ENOMEM;
+
+			names[offset + j] = name;
+			// printk(KERN_DEBUG "Debug gpio %s, name=%s", __func__, name);
+		}
+
+		offset += port->pins;
+	}
+
+	gpio->gpio.names = (const char * const *)names;
+
+	gpio->gpio.of_node = pdev->dev.of_node;
+	gpio->gpio.of_gpio_n_cells = 2;
+	gpio->gpio.of_xlate = tegra186_gpio_of_xlate;
+
+	gpio->intc.name = pdev->dev.of_node->name;
+	gpio->intc.irq_ack = tegra186_irq_ack;
+	gpio->intc.irq_mask = tegra186_irq_mask;
+	gpio->intc.irq_unmask = tegra186_irq_unmask;
+	gpio->intc.irq_set_type = tegra186_irq_set_type;
+	gpio->intc.irq_set_wake = tegra186_irq_set_wake;
+
+	irq = &gpio->gpio.irq;
+	irq->chip = &gpio->intc;
+	irq->fwnode = of_node_to_fwnode(pdev->dev.of_node);
+	irq->child_to_parent_hwirq = tegra186_gpio_child_to_parent_hwirq;
+	irq->populate_parent_alloc_arg = tegra186_gpio_populate_parent_fwspec;
+	irq->child_offset_to_irq = tegra186_gpio_child_offset_to_irq;
+	irq->child_irq_domain_ops.translate = tegra186_gpio_irq_domain_translate;
+	irq->handler = handle_simple_irq;
+	irq->default_type = IRQ_TYPE_NONE;
+	irq->parent_handler = tegra186_gpio_irq;
+	irq->parent_handler_data = gpio;
+	irq->num_parents = gpio->num_irq;
+
+
+	/*
+	* To simplify things, use a single interrupt per bank for now. Some
+	* chips support up to 8 interrupts per bank, which can be useful to
+	* distribute the load and decrease the processing latency for GPIOs
+	* but it also requires a more complicated interrupt routing than we
+	* currently program.
+	*/
+	if (gpio->num_irqs_per_bank > 1) {
+		irq->parents = devm_kcalloc(&pdev->dev, gpio->num_banks,
+						sizeof(*irq->parents), GFP_KERNEL);
+		if (!irq->parents)
+			return -ENOMEM;
+
+		for (i = 0; i < gpio->num_banks; i++)
+			irq->parents[i] = gpio->irq[i * gpio->num_irqs_per_bank];
+
+		irq->num_parents = gpio->num_banks;
+	} else {
+		irq->num_parents = gpio->num_irq;
+		irq->parents = gpio->irq;
+	}
+
+	if (gpio->soc->num_irqs_per_bank > 1)
+		tegra186_gpio_init_route_mapping(gpio);
+
+	np = of_find_matching_node(NULL, tegra186_pmc_of_match);
+	if (!of_device_is_available(np))
+		np = of_irq_find_parent(pdev->dev.of_node);
+
+	if (of_device_is_available(np)) {
+		irq->parent_domain = irq_find_host(np);
+		of_node_put(np);
+
+		if (!irq->parent_domain)
+			return -EPROBE_DEFER;
+	}
+
+
+	irq->map = devm_kcalloc(&pdev->dev, gpio->gpio.ngpio,
+				sizeof(*irq->map), GFP_KERNEL);
+	if (!irq->map)
+		return -ENOMEM;
+
+	for (i = 0, offset = 0; i < gpio->soc->num_ports; i++) {
+		const struct tegra_gpio_port *port = &gpio->soc->ports[i];
+
+		for (j = 0; j < port->pins; j++)
+			irq->map[offset + j] = irq->parents[port->bank];
+
+		offset += port->pins;
+	}
+
+	platform_set_drvdata(pdev, gpio);
+
+	err = devm_gpiochip_add_data(&pdev->dev, &gpio->gpio, gpio);
+	if (err < 0)
+		return err;
+
+	if (gpio->soc->is_hw_ts_sup) {
+		for (i = 0, offset = 0; i < gpio->soc->num_ports; i++) {
+			const struct tegra_gpio_port *port =
+							&gpio->soc->ports[i];
+
+			for (j = 0; j < port->pins; j++) {
+				base = tegra186_gpio_get_base(gpio, offset + j);
+				if (WARN_ON(base == NULL))
+					return -EINVAL;
+
+				value = readl(base +
+					      TEGRA186_GPIO_ENABLE_CONFIG);
+				value |=
+				TEGRA186_GPIO_ENABLE_CONFIG_TIMESTAMP_FUNC;
+				writel(value,
+				       base + TEGRA186_GPIO_ENABLE_CONFIG);
+			}
+			offset += port->pins;
+		}
+	}
+
+	if (gpio->use_timestamp)
+		tegra_gte_setup(gpio);
+        printk(KERN_DEBUG "Debug gpio %s, label=%s", __func__, gpio->gpio.label);
+	printk(KERN_DEBUG "Debug gpio %s, initialised gpio at %p", __func__, gpio);
+	printk(KERN_DEBUG "Debug gpio %s, initialised gpio->secure at %p", __func__, gpio->secure);
+	printk(KERN_DEBUG "Debug gpio %s, initialised gpio->base at %p", __func__, gpio->base);
+	printk(KERN_DEBUG "Debug gpio %s, initialised gpio->gte_regs at %p", __func__, gpio->gte_regs);
+// add needed hooks in guest
+	gpio->gpio.get = tegra186_gpio_get_hook,
+	gpio->gpio.set = tegra186_gpio_set;
+	return 0;
+
+// ############################################################### delete code below later
+
 //	unsigned int i, j, offset;
 //	struct gpio_irq_chip *irq;
 	struct tegra_gpio *gpio;
@@ -289,11 +538,11 @@ static int tegra186_gpio_probe(struct platform_device *pdev)
 	// we shall virtualise 'gpio' and transfer the memory segment between guest and host using 'preset_gpio'
 	//
 	// we are copying hosts initialisation from passthough preset_gpio into gpio
+	// later a char device will be used for this
 	// temporary debug workaround (while no true passthrough)
 
 	// Use memcpy to initialise struct tegra_gpio *gpio
-//TODO: we have two gpio chips
-	memcpy(gpio, &preset_gpio[0],sizeof(preset_gpio));
+	memcpy(gpio, preset_gpio, sizeof(preset_gpio));
 
 	// we should copy during operation?
 	// readl() and writel() functions
@@ -345,7 +594,7 @@ gpio_vpa = 0;
 	//
 	// what is more: that pointer data is at the moment not passed though  -- only the gpio struct
 }
-
+*/
 static int tegra186_gpio_remove(struct platform_device *pdev)
 {
 	return 0;
@@ -353,28 +602,17 @@ static int tegra186_gpio_remove(struct platform_device *pdev)
 
 // Initialization function
 static int __init copymemory(void) {
-	int err;
 	// use values from stock code in gpio-tegra186.c
 
 	// initialise platform_driver
-	while (!driver_ready_flag)
-		if((err=down_interruptible(copy_sem_driver)))
-			printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-	cpy_tegra186_gpio_driver(&tegra186_gpio_guest_proxy);
-	up(copy_sem_driver);
+	get_tegra186_gpio_driver(&tegra186_gpio_guest_proxy);
 
 	tegra186_gpio_guest_proxy.driver.name = "tegra186-guest-gpio";
-	tegra186_gpio_guest_proxy.probe = tegra186_gpio_probe;
+	tegra186_gpio_guest_proxy.probe = NULL;
 	tegra186_gpio_guest_proxy.remove = tegra186_gpio_remove;
 
 	// initialise preset_gpio
-	for (n=0, n<=1, n++) {
-		while (!gpio_ready_flag & n)
-			if((err=down_interruptible(copy_sem_gpio)))
-				printk(KERN_DEBUG "Debug semaphore error %d in %s", err, __func__);
-		get_preset_gpio(&preset_gpio[n], n);
-		up(copy_sem_gpio);
-	}
+	get_preset_gpio(preset_gpio);
 
 	return 0;
 }
