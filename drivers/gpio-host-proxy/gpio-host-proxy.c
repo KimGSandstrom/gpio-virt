@@ -5,383 +5,472 @@
  * (c) 2023 Kim Sandstrom kim.sandstrom@unikie.com
  *
  **/
-
-#include <linux/gpio/driver.h>
-#include <linux/interrupt.h>
-#include <linux/irq.h>
-#include <linux/module.h>
-#include <linux/of_device.h>
-#include <linux/gpio/consumer.h>
+#include <linux/module.h>	  // Core header for modules.
+#include <linux/device.h>	  // Supports driver model.
+#include <linux/kernel.h>	  // Kernel header for convenient functions.
+#include <linux/fs.h>		  // File-system support.
+#include <linux/uaccess.h>	  // User access copy function support.
+#include <linux/slab.h>
+#include <soc/tegra/bpmp.h>
 #include <linux/platform_device.h>
-#include <linux/of_gpio.h>
-#include <linux/of_irq.h>
-#include <linux/uaccess.h>
-
-#include <dt-bindings/gpio/tegra186-gpio.h>
-#include <dt-bindings/gpio/tegra194-gpio.h>
-#include <dt-bindings/gpio/tegra234-gpio.h>
-#include <dt-bindings/gpio/tegra239-gpio.h>
-
-/* security registers */
-#define TEGRA186_GPIO_CTL_SCR 0x0c
-#define TEGRA186_GPIO_CTL_SCR_SEC_WEN BIT(28)
-#define TEGRA186_GPIO_CTL_SCR_SEC_REN BIT(27)
-
-#define TEGRA186_GPIO_INT_ROUTE_MAPPING(p, x) (0x14 + (p) * 0x20 + (x) * 4)
-
-#define GPIO_VM_REG				0x00
-#define GPIO_VM_RW				0x03
-#define GPIO_SCR_REG				0x04
-#define GPIO_SCR_DIFF				0x08
-#define GPIO_SCR_BASE_DIFF			0x40
-#define GPIO_SCR_SEC_WEN			BIT(28)
-#define GPIO_SCR_SEC_REN			BIT(27)
-#define GPIO_SCR_SEC_G1W			BIT(9)
-#define GPIO_SCR_SEC_G1R			BIT(1)
-#define GPIO_FULL_ACCESS			(GPIO_SCR_SEC_WEN | \
-						 GPIO_SCR_SEC_REN | \
-						 GPIO_SCR_SEC_G1R | \
-						 GPIO_SCR_SEC_G1W)
-#define GPIO_SCR_SEC_ENABLE			(GPIO_SCR_SEC_WEN | \
-						 GPIO_SCR_SEC_REN)
-
-/* control registers */
-#define TEGRA186_GPIO_ENABLE_CONFIG 0x00
-#define TEGRA186_GPIO_ENABLE_CONFIG_ENABLE BIT(0)
-#define TEGRA186_GPIO_ENABLE_CONFIG_OUT BIT(1)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TRIGGER_TYPE_NONE (0x0 << 2)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TRIGGER_TYPE_LEVEL (0x1 << 2)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TRIGGER_TYPE_SINGLE_EDGE (0x2 << 2)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TRIGGER_TYPE_DOUBLE_EDGE (0x3 << 2)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TRIGGER_TYPE_MASK (0x3 << 2)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TRIGGER_LEVEL BIT(4)
-#define TEGRA186_GPIO_ENABLE_CONFIG_DEBOUNCE BIT(5)
-#define TEGRA186_GPIO_ENABLE_CONFIG_INTERRUPT BIT(6)
-#define TEGRA186_GPIO_ENABLE_CONFIG_TIMESTAMP_FUNC BIT(7)
-
-#define TEGRA186_GPIO_DEBOUNCE_CONTROL 0x04
-#define TEGRA186_GPIO_DEBOUNCE_CONTROL_THRESHOLD(x) ((x) & 0xff)
-
-#define TEGRA186_GPIO_INPUT 0x08
-#define TEGRA186_GPIO_INPUT_HIGH BIT(0)
-
-#define TEGRA186_GPIO_OUTPUT_CONTROL 0x0c
-#define TEGRA186_GPIO_OUTPUT_CONTROL_FLOATED BIT(0)
-
-#define TEGRA186_GPIO_OUTPUT_VALUE 0x10
-#define TEGRA186_GPIO_OUTPUT_VALUE_HIGH BIT(0)
-
-#define TEGRA186_GPIO_INTERRUPT_CLEAR 0x14
-
-#define TEGRA186_GPIO_INTERRUPT_STATUS(x) (0x100 + (x) * 4)
-
-/******************** GTE Registers ******************************/
-
-#define GTE_GPIO_TECTRL				0x0
-#define GTE_GPIO_TETSCH				0x4
-#define GTE_GPIO_TETSCL				0x8
-#define GTE_GPIO_TESRC				0xC
-#define GTE_GPIO_TECCV				0x10
-#define GTE_GPIO_TEPCV				0x14
-#define GTE_GPIO_TEENCV				0x18
-#define GTE_GPIO_TECMD				0x1C
-#define GTE_GPIO_TESTATUS			0x20
-#define GTE_GPIO_SLICE0_TETEN			0x40
-#define GTE_GPIO_SLICE0_TETDIS			0x44
-#define GTE_GPIO_SLICE1_TETEN			0x60
-#define GTE_GPIO_SLICE1_TETDIS			0x64
-#define GTE_GPIO_SLICE2_TETEN			0x80
-#define GTE_GPIO_SLICE2_TETDIS			0x84
-
-#define GTE_GPIO_TECTRL_ENABLE_SHIFT		0
-#define GTE_GPIO_TECTRL_ENABLE_MASK		0x1
-#define GTE_GPIO_TECTRL_ENABLE_DISABLE		0x0
-#define GTE_GPIO_TECTRL_ENABLE_ENABLE		0x1
-
-#define GTE_GPIO_TESRC_SLICE_SHIFT		16
-#define GTE_GPIO_TESRC_SLICE_DEFAULT_MASK	0xFF
-
-#define GTE_GPIO_TECMD_CMD_POP			0x1
-
-#define GTE_GPIO_TESTATUS_OCCUPANCY_SHIFT	8
-#define GTE_GPIO_TESTATUS_OCCUPANCY_MASK	0xFF
-
-#define AON_GPIO_SLICE1_MAP			0x3000
-#define AON_GPIO_SLICE2_MAP			0xFFFFFFF
-#define AON_GPIO_SLICE1_INDEX			1
-#define AON_GPIO_SLICE2_INDEX			2
-#define BASE_ADDRESS_GTE_GPIO_SLICE0		0x40
-#define BASE_ADDRESS_GTE_GPIO_SLICE1		0x60
-#define BASE_ADDRESS_GTE_GPIO_SLICE2		0x80
-
-#define GTE_GPIO_SLICE_SIZE (BASE_ADDRESS_GTE_GPIO_SLICE1 - \
-			     BASE_ADDRESS_GTE_GPIO_SLICE0)
-
-/* AON GPIOS are mapped to only slice 1 and slice 2 */
-/* GTE Interrupt connections. For slice 1 */
-#define NV_AON_GTE_SLICE1_IRQ_LIC0   0
-#define NV_AON_GTE_SLICE1_IRQ_LIC1   1
-#define NV_AON_GTE_SLICE1_IRQ_LIC2   2
-#define NV_AON_GTE_SLICE1_IRQ_LIC3   3
-#define NV_AON_GTE_SLICE1_IRQ_APBERR 4
-#define NV_AON_GTE_SLICE1_IRQ_GPIO   5
-#define NV_AON_GTE_SLICE1_IRQ_WAKE0  6
-#define NV_AON_GTE_SLICE1_IRQ_PMC    7
-#define NV_AON_GTE_SLICE1_IRQ_DMIC   8
-#define NV_AON_GTE_SLICE1_IRQ_PM     9
-#define NV_AON_GTE_SLICE1_IRQ_FPUINT 10
-#define NV_AON_GTE_SLICE1_IRQ_AOVC   11
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_28 12
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_29 13
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_30 14
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_31 15
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_32 16
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_33 17
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_34 18
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_35 19
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_36 20
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_37 21
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_38 22
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_39 23
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_40 24
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_41 25
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_42 26
-#define NV_AON_GTE_SLICE1_IRQ_GPIO_43 27
-
-/* GTE Interrupt connections. For slice 2 */
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_0 0
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_1 1
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_2 2
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_3 3
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_4 4
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_5 5
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_6 6
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_7 7
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_8 8
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_9 9
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_10 10
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_11 11
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_12 12
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_13 13
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_14 14
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_15 15
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_16 16
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_17 17
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_18 18
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_19 19
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_20 20
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_21 21
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_22 22
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_23 23
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_24 24
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_25 25
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_26 26
-#define NV_AON_GTE_SLICE2_IRQ_GPIO_27 27
+#include "bpmp-host-proxy.h"
 
 
-/**************************************************************/
+#define DEVICE_NAME "gpio-host"   // Device name.
+#define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
 
-struct tegra_gpio_port {
-	const char *name;
-	unsigned int bank;
-	unsigned int port;
-	unsigned int pins;
-};
-
-struct tegra186_pin_range {
-	unsigned int offset;
-	const char *group;
-};
-
-struct tegra_gpio_soc {
-	const struct tegra_gpio_port *ports;
-	unsigned int num_ports;
-	const char *name;
-	unsigned int instance;
-	unsigned int num_irqs_per_bank;
-	bool is_hw_ts_sup;
-	bool do_vm_check;
-	const struct tegra186_pin_range *pin_ranges;
-	unsigned int num_pin_ranges;
-	const char *pinmux;
-	const struct tegra_gte_info *gte_info;
-	int gte_npins;
-};
-
-struct tegra_gpio_saved_register {
-	bool restore_needed;
-	u32 val;
-	u32 conf;
-	u32 out;
-};
-
-struct tegra_gpio {
-	struct gpio_chip gpio;
-	struct irq_chip intc;
-	unsigned int num_irq;
-	unsigned int *irq;
-
-	const struct tegra_gpio_soc *soc;
-	unsigned int num_irqs_per_bank;
-	unsigned int num_banks;
-	unsigned int gte_enable;
-	bool use_timestamp;
-
-	void __iomem *secure;
-	void __iomem *base;
-	void __iomem *gte_regs;
-	struct tegra_gpio_saved_register *gpio_rval;
-};
-
-// virtualisation memory (for: tegra_gpio *gpio)
-extern uint64_t gpio_vpa;
-extern const int vpamem;
+MODULE_LICENSE("GPL");						 ///< The license type -- this affects available functionality
+MODULE_AUTHOR("Kim Sandström");					 ///< The author -- visible when you use modinfo
+MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module"); ///< The description -- see modinfo
+MODULE_VERSION("0.1");						 ///< A version number to inform users
 
 
-// TODO: we need to double these elements, one set of elements for each gpio chip.
-extern void * (*get_tegra186_gpio_driver)(struct platform_driver *);	// TODO we need to copy driver for gpiochip1 and gpiochip0
-extern void * (*get_preset_gpio)(struct tegra_gpio *);
+#define GPIO_HOST_VERBOSE    0
 
-static struct tegra_gpio preset_gpio[2];			// will be initialised to values set by stock driver in host
+#if GPIO_HOST_VERBOSE
+#define deb_info(...)     printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
+#else
+#define deb_info(...)
+#endif
 
-// static volatile void __iomem *mem_iova = NULL;
+#define deb_error(...)    printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
 
-extern void __iomem *secure_vpa;
-extern void __iomem *base_vpa;
-extern void __iomem *gte_regs_vpa;
+/**
+ * Important variables that store data and keep track of relevant information.
+ */
+static int major_number;
 
-// this var is used temproarily while we have no true passthrough
-static struct platform_driver tegra186_gpio_host_proxy;
+static struct class *gpio_host_proxy_class = NULL;	///< The device-driver class struct pointer
+static struct device *gpio_host_proxy_device = NULL; ///< The device-driver device struct pointer
 
-/*************************** GTE related code ********************/
+/**
+ * Prototype functions for file operations.
+ */
+static int open(struct inode *, struct file *);
+static int close(struct inode *, struct file *);
+static ssize_t read(struct file *, char *, size_t, loff_t *);
+static ssize_t write(struct file *, const char *, size_t, loff_t *);
 
-// for now: I assume code in this section will never be executed
-
-static inline u32 tegra_gte_readl(struct tegra_gpio *tgi, u32 reg)
-{
-	printk(KERN_DEBUG "Debug host gpio %s, file %s", __func__, __FILE__);
-
-	return __raw_readl(tgi->gte_regs + reg);
-}
-
-static inline void tegra_gte_writel(struct tegra_gpio *tgi, u32 reg,
-		u32 val)
-{
-	printk(KERN_DEBUG "Debug host gpio %s, file %s", __func__, __FILE__);
-
-	__raw_writel(val, tgi->gte_regs + reg);
-}
-
-// most tegra_*() functions removed.
-// Makes sense to use functions in stock driver ?
-
-/*****************************************************************/
-
-// not used functions removed
-// we assume functions will be called in stock driver code gpio-tegra186.c
-
-// extern int _tegra186_gpio_probe(struct platform_device *pdev);
-
-// seems we must export io memory instead of whole struct
-// TODO: export irq
-
-// these will be in user memory
-struct tegra_gpio *tegra_gpio_virtual = NULL;
-void __iomem *secure_virtual = NULL;
-void __iomem *base_virtual = NULL;
-void __iomem *gte_regs_virtual = NULL;
-unsigned int *irq_virtual = NULL;
-EXPORT_SYMBOL_GPL(tegra_gpio_virtual);
-EXPORT_SYMBOL_GPL(secure_virtual);
-EXPORT_SYMBOL_GPL(base_virtual);
-EXPORT_SYMBOL_GPL(gte_regs_virtual);
-EXPORT_SYMBOL_GPL(irq_virtual);
-
-static int tegra186_gpio_probe(struct platform_device *pdev)
-{
-	// unsigned int i, j, offset;
-	// struct gpio_irq_chip *irq;
-	struct tegra_gpio *gpio;
-	// struct device_node *np;
-	// struct resource *res;
-	// char **names;
-	int err, n;
-//	int ret;
-//	int value;
-//	void __iomem *base;
-
-	printk(KERN_DEBUG "Debug host gpio %s, file %s", __func__, __FILE__);
-	
-	gpio = devm_kzalloc(&pdev->dev, sizeof(*gpio), GFP_KERNEL);
-	if (!gpio)
-		return -ENOMEM;
-
-	// we shall virtualise 'gpio'
-	// this is host code !!!
-	// driver has been set up by stock tegra driver in host (initialisations, irq (sort of), everything)
-
-	// this copying is not fully correct
-	// the physical hardware is accessed from the original addresses
-	// 1) can we export the original devm?
-	// 2) can we provide host with 'struct tegra_gpio *gpio' only -- physical gpio handled here in host
-	// 3) can it be handled via copy at interaction?
-
-	// this is not quite right anyhow
-	for (n=0 ; n<=1 ; n++) 
+/**
+ * File operations structure and the functions it points to.
+ */
+static struct file_operations fops =
 	{
-		err = copy_to_user(tegra_gpio_virtual, &preset_gpio[n], sizeof(struct tegra_gpio));		// the full struct will not contain all needed data
-		if (err)  printk(KERN_DEBUG "Debug host gpio %s, 1 copy_to_user error %d", __func__, err);
-		
-		err = copy_to_user(secure_virtual, preset_gpio[n].secure, preset_gpio[n].soc->num_ports * 0x1000 + 0x1800);
-		if (err)  printk(KERN_DEBUG "Debug host gpio %s, 2 copy_to_user error %d", __func__, err);
+		.owner = THIS_MODULE,
+		.open = open,
+		.release = close,
+		.read = read,
+		.write = write,
+};
+
+// GPIO allowed resources structure
+static struct gpio_allowed_res gpio_ares; 
+
+#if GPIO_HOST_VERBOSE
+// Usage:
+//     hexDump(desc, addr, len, perLine);
+//         desc:    if non-NULL, printed as a description before hex dump.
+//         addr:    the address to start dumping from.
+//         len:     the number of bytes to dump.
+//         perLine: number of bytes on each output line.
+void static hexDump (
+    const char * desc,
+    const void * addr,
+    const int len
+) {
+    // Silently ignore silly per-line values.
+
+    int i;
+    unsigned char buff[17];
+	unsigned char out_buff[4000];
+	unsigned char *p_out_buff = out_buff;
+    const unsigned char * pc = (const unsigned char *)addr;
+
+
+
+    // Output description if given.
+
+    if (desc != NULL) printk ("%s:\n", desc);
+
+    // Length checks.
+
+    if (len == 0) {
+        printk(DEVICE_NAME ":   ZERO LENGTH\n");
+        return;
+    }
+    if (len < 0) {
+        printk(DEVICE_NAME ":   NEGATIVE LENGTH: %d\n", len);
+        return;
+    }
+
+	if(len > 400){
+        printk(DEVICE_NAME ":   VERY LONG: %d\n", len);
+        return;
+    }
+
+    // Process every byte in the data.
+
+    for (i = 0; i < len; i++) {
+        // Multiple of perLine means new or first line (with line offset).
+
+        if ((i % 16) == 0) {
+            // Only print previous-line ASCII buffer for lines beyond first.
+
+            if (i != 0) {
+				p_out_buff += sprintf (p_out_buff, "  %s\n", buff);
+			}
+            // Output the offset of current line.
+
+            p_out_buff += sprintf (p_out_buff,"  %04x ", i);
+        }
+
+        // Now the hex code for the specific character.
+
+        p_out_buff += sprintf (p_out_buff, " %02x", pc[i]);
+
+        // And buffer a printable ASCII character for later.
+
+        if ((pc[i] < 0x20) || (pc[i] > 0x7e)) // isprint() may be better.
+            buff[i % 16] = '.';
+        else
+            buff[i % 16] = pc[i];
+        buff[(i % 16) + 1] = '\0';
+    }
+
+    // Pad out last line if not exactly perLine characters.
+
+    while ((i % 16) != 0) {
+        p_out_buff += sprintf (p_out_buff, "   ");
+        i++;
+    }
+
+    // And print the final ASCII buffer.
+
+    p_out_buff += sprintf (p_out_buff, "  %s\n", buff);
+
+	printk(DEVICE_NAME ": %s", out_buff);
+}
+#else
+	#define hexDump(...)
+#endif
+
+/**
+ * Initializes module at installation
+ */
+static int gpio_host_proxy_probe(struct platform_device *pdev)
+{
+	int i;
+	
+	deb_info("%s, installing module.", __func__);
+
+// *********************
+// start of TODO clocks and resets
+
+	// Read allowed clocks and reset from the device tree
+	// if clocks or resets are not defined, not initialize the module
+	bpmp_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
+		"allowed-clocks", bpmp_ares.clock, 0, BPMP_HOST_MAX_CLOCKS_SIZE);
+
+	if(bpmp_ares.clocks_size <= 0){
+		deb_error("No allowed clocks defined");
+		return EINVAL;
 	}
 
-	// err = copy_to_user(base_virtual, gpio->base, xxx);		// for now I can't find size -- maybe pointer alone is enough?
-	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
-	// err = copy_to_user(gte_regs_virtual, gpio->gte_regs, xxx); // for now I can't find size -- maybe pointer alone is enough?
-	// if ( err )  printk(KERN_DEBUG "Debug host gpio %s, copy_to_user error %d", __func__, err);
-	
-	err = copy_to_user(irq_virtual, preset_gpio[n].irq, preset_gpio[n].num_irq * sizeof(*preset_gpio[n].irq));
-	if ( err )  printk(KERN_DEBUG "Debug host gpio %s, 3 copy_to_user error %d", __func__, err);
+	deb_info("bpmp_ares.clocks_size: %d", bpmp_ares.clocks_size);
+	for (i = 0; i < bpmp_ares.clocks_size; i++)	{
+		deb_info("bpmp_ares.clock %d", bpmp_ares.clock[i]);
+	}
+
+	bpmp_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
+		"allowed-resets", bpmp_ares.reset, 0, BPMP_HOST_MAX_RESETS_SIZE);
+
+	if(bpmp_ares.resets_size <= 0){
+		deb_error("No allowed resets defined");
+		return EINVAL;
+	}
+
+	deb_info("bpmp_ares.resets_size: %d", bpmp_ares.resets_size);
+	for (i = 0; i < bpmp_ares.resets_size; i++)	{
+		deb_info("bpmp_ares.reset %d", bpmp_ares.reset[i]);
+	}
 
 
-	// since this is host code all values and pointers of gpio should be correct
-	// gpio shoud be set up already -- with tegra_gte_setup(gpio);
-	
-	printk(KERN_DEBUG "Debug host proxy gpio %s, label=%s", __func__, preset_gpio[n].gpio.label);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio at %p", __func__, &preset_gpio[n]);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->secure at %p", __func__, preset_gpio[n].secure);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->base at %p", __func__, preset_gpio[n].base);
-	printk(KERN_DEBUG "Debug host proxy gpio %s, initialised gpio->gte_regs at %p", __func__, preset_gpio[n].gte_regs);
+	// Allocate a major number for the device.
+	major_number = register_chrdev(0, DEVICE_NAME, &fops);
+	if (major_number < 0)
+	{
+		deb_error("could not register number.\n");
+		return major_number;
+	}
+	deb_info("registered correctly with major number %d\n", major_number);
+// end of TODO clocks and resets
+// *********************
+
+	// Register the device class
+	gpio_host_proxy_class = class_create(THIS_MODULE, CLASS_NAME);
+	if (IS_ERR(gpio_host_proxy_class))
+	{ // Check for error and clean up if there is
+		unregister_chrdev(major_number, DEVICE_NAME);
+		deb_error("Failed to register device class\n");
+		return PTR_ERR(gpio_host_proxy_class); // Correct way to return an error on a pointer
+	}
+	deb_info("device class registered correctly\n");
+
+	// Register the device driver
+	gpio_host_proxy_device = device_create(gpio_host_proxy_class, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
+	if (IS_ERR(gpio_host_proxy_device))
+	{								 // Clean up if there is an error
+		class_destroy(gpio_host_proxy_class); 
+		unregister_chrdev(major_number, DEVICE_NAME);
+		deb_error("Failed to create the device\n");
+		return PTR_ERR(gpio_host_proxy_device);
+	}
+
+	deb_info("device class created correctly\n"); // Made it! device was initialized
 
 	return 0;
 }
 
-static int tegra186_gpio_remove(struct platform_device *pdev)
+
+
+/*
+ * Removes module, sends appropriate message to kernel
+ */
+static int gpio_host_proxy_remove(struct platform_device *pdev)
 {
+	deb_info("removing module.\n");
+	device_destroy(gpio_host_proxy_class, MKDEV(major_number, 0)); // remove the device
+	class_unregister(gpio_host_proxy_class);						  // unregister the device class
+	class_destroy(gpio_host_proxy_class);						  // remove the device class
+	unregister_chrdev(major_number, DEVICE_NAME);		  // unregister the major number
+	deb_info("Goodbye from the LKM!\n");
+	unregister_chrdev(major_number, DEVICE_NAME);
 	return 0;
 }
 
-// Initialization function
-static int __init copymemory(void) {
-	// initialise platform_driver
-	get_tegra186_gpio_driver(&tegra186_gpio_host_proxy);
-
-	tegra186_gpio_host_proxy.driver.name = "tegra186-host-gpio";
-	tegra186_gpio_host_proxy.probe = tegra186_gpio_probe;
-	tegra186_gpio_host_proxy.remove = tegra186_gpio_remove;
-
-	// initialise preset_gpio
-	// note we have two gpio chips: label = tegra234-gpio and label = tegra234-gpio-aon
-	get_preset_gpio(preset_gpio);
-
+/*
+ * Opens device module, sends appropriate message to kernel
+ */
+static int open(struct inode *inodep, struct file *filep)
+{
+	deb_info("device opened.\n");
 	return 0;
 }
 
-module_init(copymemory);
-builtin_platform_driver(tegra186_gpio_host_proxy);
+/*
+ * Closes device module, sends appropriate message to kernel
+ */
+static int close(struct inode *inodep, struct file *filep)
+{
+	deb_info("device closed.\n");
+	return 0;
+}
+
+/*
+ * Reads from device, displays in userspace, and deletes the read data
+ */
+static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset)
+{
+	deb_info("read stub");
+	return 0;
+}
+
+// TODO, we do not pass bpmp-messages
+/*
+ * Checks if the msg that wants to transmit through the
+ * gpio-host is allowed by the device tree configuration
+ */
+static bool check_if_allowed(struct tegra_gpio_message *msg)
+{
+	struct mrq_reset_request *reset_req = NULL;
+	struct mrq_clk_request *clock_req = NULL;
+	uint32_t clk_cmd = 0;
+	int i = 0;
+
+	// Allow get information mrq
+	if(msg->mrq == MRQ_PING ||
+	   msg->mrq == MRQ_QUERY_TAG ||
+	   msg->mrq == MRQ_THREADED_PING ||
+	   msg->mrq == MRQ_QUERY_ABI ||
+	   msg->mrq == MRQ_QUERY_FW_TAG ){
+		return true;
+	}
+
+	// Check for reset and clock mrq
+	if(msg->mrq == MRQ_RESET){
+		reset_req = (struct mrq_reset_request*) msg->tx.data;
+
+		for(i = 0; i < bpmp_ares.resets_size; i++){
+			if(bpmp_ares.reset[i] == reset_req->reset_id){
+				return true;
+			}
+		}
+		deb_error("Error, reset not allowed for: %d", reset_req->reset_id);
+		return false;
+	}
+	else if (msg->mrq == MRQ_CLK){
+		clock_req = (struct mrq_clk_request*) msg->tx.data;
+
+		for(i = 0; i < bpmp_ares.clocks_size; i++){
+			// bits[23..0] are the clock id
+			if(bpmp_ares.clock[i] == (clock_req->cmd_and_id & 0x0FFF)){
+				return true;
+			}
+		}
+
+		clk_cmd = (clock_req->cmd_and_id >> 24) & 0x000F;
+
+		// If there is a get info command, allow it no matters the ID
+		if(clk_cmd == CMD_CLK_GET_MAX_CLK_ID ||
+		   clk_cmd == CMD_CLK_GET_ALL_INFO ||
+		   clk_cmd == CMD_CLK_GET_PARENT){
+			return true;
+		}
+
+		deb_error("Error, clock not allowed for: %d, with command: %d", 
+			clock_req->cmd_and_id & 0x0FFF, clk_cmd);
+		return false;
+	}
+
+	deb_error("Error, msg->mrq %d not allowed", msg->mrq);
+
+	return false;
+}
+
+extern int tegra_bpmp_transfer(struct tegra_bpmp *, struct tegra_bpmp_message *);
+extern struct tegra_bpmp *tegra_bpmp_host_device;
+
+#define BUF_SIZE 1024 
+
+/*
+ * Writes to the device
+ */
+
+static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
+{
+
+	int ret = len;
+	struct tegra_bpmp_message *kbuf = NULL;
+	void *txbuf = NULL;
+	void *rxbuf = NULL;
+	void *usertxbuf = NULL;
+	void *userrxbuf = NULL;
+
+	if (len > 65535) {	/* paranoia */
+		deb_error("count %zu exceeds max # of bytes allowed, "
+			"aborting write\n", len);
+		goto out_nomem;
+	}
+
+	deb_info("wants to write %zu bytes\n", len);
 
 
-MODULE_DESCRIPTION("NVIDIA Tegra186 GPIO host driver");
-MODULE_AUTHOR("Kim Sandström <kim.sandstrom@unikie.com>");
-MODULE_LICENSE("GPL v2");
+	ret = -ENOMEM;
+	kbuf = kmalloc(len, GFP_KERNEL);
+
+
+	if (!kbuf)
+		goto out_nomem;
+
+	memset(kbuf, 0, len);
+
+	ret = -EFAULT;
+	
+	// Copy header
+	if (copy_from_user(kbuf, buffer, len)) {
+		deb_error("copy_from_user(1) failed\n");
+		goto out_cfu;
+	}
+
+	if(kbuf->tx.size > 0){
+		txbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
+		if (!txbuf)
+			goto out_nomem;
+		memset(txbuf, 0, BUF_SIZE);
+		if (copy_from_user(txbuf, kbuf->tx.data, kbuf->tx.size)) {
+			deb_error("copy_from_user(2) failed\n");
+			goto out_cfu;
+		}
+	}
+
+	rxbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
+	if (!rxbuf)
+		goto out_nomem;
+	
+	memset(rxbuf, 0, BUF_SIZE);
+	if (copy_from_user(rxbuf, kbuf->rx.data, kbuf->rx.size)) {
+		deb_error("copy_from_user(3) failed\n");
+		goto out_cfu;
+	}	
+
+
+	usertxbuf = (void*)kbuf->tx.data; //save userspace buffers addresses
+	userrxbuf = kbuf->rx.data;
+
+
+	kbuf->tx.data = txbuf; //reassing to kernel space buffers
+	kbuf->rx.data = rxbuf;
+
+	hexDump (DEVICE_NAME ": kbuf", kbuf, len);
+	hexDump (DEVICE_NAME ": txbuf", txbuf, kbuf->tx.size);
+
+	if(!tegra_bpmp_host_device){
+		deb_error("host device not initialised, can't do transfer!");
+		return -EFAULT;
+	}
+
+	if(!check_if_allowed(kbuf)){
+		goto out_cfu;
+	}
+
+	ret = tegra_bpmp_transfer(tegra_bpmp_host_device, (struct tegra_bpmp_message *)kbuf);
+
+
+
+	if (copy_to_user((void *)usertxbuf, kbuf->tx.data, kbuf->tx.size)) {
+		deb_error("copy_to_user(2) failed\n");
+		goto out_notok;
+	}
+
+	if (copy_to_user((void *)userrxbuf, kbuf->rx.data, kbuf->rx.size)) {
+		deb_error("copy_to_user(3) failed\n");
+		goto out_notok;
+	}
+
+	kbuf->tx.data=usertxbuf;
+	kbuf->rx.data=userrxbuf;
+	
+	if (copy_to_user((void *)buffer, kbuf, len)) {
+		deb_error("copy_to_user(1) failed\n");
+		goto out_notok;
+	}
+
+
+
+	kfree(kbuf);
+	return len;
+out_notok:
+out_nomem:
+	deb_error("memory allocation failed");
+out_cfu:
+	kfree(kbuf);
+	kfree(txbuf);
+	kfree(rxbuf);
+    return -EINVAL;
+
+}
+
+static const struct of_device_id bpmp_host_proxy_ids[] = {
+	{ .compatible = "nvidia,bpmp-host-proxy" },
+	{ }
+};
+
+static struct platform_driver bpmp_host_proxy_driver = {
+	.driver = {
+		.name = "bpmp_host_proxy",
+		.of_match_table = bpmp_host_proxy_ids,
+	},
+	.probe = bpmp_host_proxy_probe,
+	.remove = bpmp_host_proxy_remove,
+};
+builtin_platform_driver(bpmp_host_proxy_driver);
