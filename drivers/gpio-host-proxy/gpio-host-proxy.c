@@ -11,10 +11,10 @@
 #include <linux/fs.h>		  // File-system support.
 #include <linux/uaccess.h>	  // User access copy function support.
 #include <linux/slab.h>
-#include <soc/tegra/bpmp.h>
+//#include <soc/tegra/gpio.h>
 #include <linux/platform_device.h>
-#include "bpmp-host-proxy.h"
-
+//#include "gpio-host-proxy.h"
+#include <linux/of_device.h>
 
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
@@ -54,6 +54,7 @@ static ssize_t write(struct file *, const char *, size_t, loff_t *);
 /**
  * File operations structure and the functions it points to.
  */
+
 static struct file_operations fops =
 	{
 		.owner = THIS_MODULE,
@@ -64,7 +65,7 @@ static struct file_operations fops =
 };
 
 // GPIO allowed resources structure
-static struct gpio_allowed_res gpio_ares; 
+// static struct gpio_allowed_res gpio_ares; 
 
 #if GPIO_HOST_VERBOSE
 // Usage:
@@ -159,41 +160,42 @@ void static hexDump (
  */
 static int gpio_host_proxy_probe(struct platform_device *pdev)
 {
-	int i;
+//	int i;
 	
 	deb_info("%s, installing module.", __func__);
 
 // *********************
 // start of TODO clocks and resets
 
-	// Read allowed clocks and reset from the device tree
-	// if clocks or resets are not defined, not initialize the module
-	bpmp_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
-		"allowed-clocks", bpmp_ares.clock, 0, BPMP_HOST_MAX_CLOCKS_SIZE);
-
-	if(bpmp_ares.clocks_size <= 0){
-		deb_error("No allowed clocks defined");
-		return EINVAL;
-	}
-
-	deb_info("bpmp_ares.clocks_size: %d", bpmp_ares.clocks_size);
-	for (i = 0; i < bpmp_ares.clocks_size; i++)	{
-		deb_info("bpmp_ares.clock %d", bpmp_ares.clock[i]);
-	}
-
-	bpmp_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
-		"allowed-resets", bpmp_ares.reset, 0, BPMP_HOST_MAX_RESETS_SIZE);
-
-	if(bpmp_ares.resets_size <= 0){
-		deb_error("No allowed resets defined");
-		return EINVAL;
-	}
-
-	deb_info("bpmp_ares.resets_size: %d", bpmp_ares.resets_size);
-	for (i = 0; i < bpmp_ares.resets_size; i++)	{
-		deb_info("bpmp_ares.reset %d", bpmp_ares.reset[i]);
-	}
-
+//	// Read allowed clocks and reset from the device tree
+//	// if clocks or resets are not defined, not initialize the module
+//	gpio_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
+//		"allowed-clocks", gpio_ares.clock, 0, GPIO_HOST_MAX_CLOCKS_SIZE);
+//
+//	if(gpio_ares.clocks_size <= 0){
+//		deb_error("No allowed clocks defined");
+//		return EINVAL;
+//	}
+//
+//	deb_info("gpio_ares.clocks_size: %d", gpio_ares.clocks_size);
+//	for (i = 0; i < gpio_ares.clocks_size; i++)	{
+//		deb_info("gpio_ares.clock %d", gpio_ares.clock[i]);
+//	}
+//
+//	gpio_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
+//		"allowed-resets", gpio_ares.reset, 0, GPIO_HOST_MAX_RESETS_SIZE);
+//
+//	if(gpio_ares.resets_size <= 0){
+//		deb_error("No allowed resets defined");
+//		return EINVAL;
+//	}
+//
+//	deb_info("gpio_ares.resets_size: %d", gpio_ares.resets_size);
+//	for (i = 0; i < gpio_ares.resets_size; i++)	{
+//		deb_info("gpio_ares.reset %d", gpio_ares.reset[i]);
+//	}
+// end of TODO clocks and resets
+// *********************
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
@@ -203,8 +205,6 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 		return major_number;
 	}
 	deb_info("registered correctly with major number %d\n", major_number);
-// end of TODO clocks and resets
-// *********************
 
 	// Register the device class
 	gpio_host_proxy_class = class_create(THIS_MODULE, CLASS_NAME);
@@ -275,70 +275,19 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
 	return 0;
 }
 
-// TODO, we do not pass bpmp-messages
+// TODO, we do not pass gpio-messages
 /*
- * Checks if the msg that wants to transmit through the
+ * Checks if the value to transmit through the
  * gpio-host is allowed by the device tree configuration
  */
-static bool check_if_allowed(struct tegra_gpio_message *msg)
+/*
+static bool check_if_allowed(int val)
 {
-	struct mrq_reset_request *reset_req = NULL;
-	struct mrq_clk_request *clock_req = NULL;
-	uint32_t clk_cmd = 0;
-	int i = 0;
-
-	// Allow get information mrq
-	if(msg->mrq == MRQ_PING ||
-	   msg->mrq == MRQ_QUERY_TAG ||
-	   msg->mrq == MRQ_THREADED_PING ||
-	   msg->mrq == MRQ_QUERY_ABI ||
-	   msg->mrq == MRQ_QUERY_FW_TAG ){
-		return true;
-	}
-
-	// Check for reset and clock mrq
-	if(msg->mrq == MRQ_RESET){
-		reset_req = (struct mrq_reset_request*) msg->tx.data;
-
-		for(i = 0; i < bpmp_ares.resets_size; i++){
-			if(bpmp_ares.reset[i] == reset_req->reset_id){
-				return true;
-			}
-		}
-		deb_error("Error, reset not allowed for: %d", reset_req->reset_id);
-		return false;
-	}
-	else if (msg->mrq == MRQ_CLK){
-		clock_req = (struct mrq_clk_request*) msg->tx.data;
-
-		for(i = 0; i < bpmp_ares.clocks_size; i++){
-			// bits[23..0] are the clock id
-			if(bpmp_ares.clock[i] == (clock_req->cmd_and_id & 0x0FFF)){
-				return true;
-			}
-		}
-
-		clk_cmd = (clock_req->cmd_and_id >> 24) & 0x000F;
-
-		// If there is a get info command, allow it no matters the ID
-		if(clk_cmd == CMD_CLK_GET_MAX_CLK_ID ||
-		   clk_cmd == CMD_CLK_GET_ALL_INFO ||
-		   clk_cmd == CMD_CLK_GET_PARENT){
-			return true;
-		}
-
-		deb_error("Error, clock not allowed for: %d, with command: %d", 
-			clock_req->cmd_and_id & 0x0FFF, clk_cmd);
-		return false;
-	}
-
-	deb_error("Error, msg->mrq %d not allowed", msg->mrq);
-
 	return false;
 }
+*/
 
-extern int tegra_bpmp_transfer(struct tegra_bpmp *, struct tegra_bpmp_message *);
-extern struct tegra_bpmp *tegra_bpmp_host_device;
+extern struct tegra_gpio *tegra_gpio_host_device;
 
 #define BUF_SIZE 1024 
 
@@ -350,11 +299,11 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 {
 
 	int ret = len;
-	struct tegra_bpmp_message *kbuf = NULL;
+	uint64_t *kbuf = NULL;
 	void *txbuf = NULL;
 	void *rxbuf = NULL;
-	void *usertxbuf = NULL;
-	void *userrxbuf = NULL;
+//	void *usertxbuf = NULL;
+//	void *userrxbuf = NULL;
 
 	if (len > 65535) {	/* paranoia */
 		deb_error("count %zu exceeds max # of bytes allowed, "
@@ -382,6 +331,8 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		goto out_cfu;
 	}
 
+// kbuf is in kernel space
+/* do whatever with kbuff here	
 	if(kbuf->tx.size > 0){
 		txbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
 		if (!txbuf)
@@ -423,10 +374,17 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		goto out_cfu;
 	}
 
-	ret = tegra_bpmp_transfer(tegra_bpmp_host_device, (struct tegra_bpmp_message *)kbuf);
+*/
+//	ret = tegra_bpmp_transfer(tegra_bpmp_host_device, (struct tegra_bpmp_message *)kbuf);
 
 
+//	TODO
+//	do gpio operation with kbuf
 
+
+	
+/* 	copy result to userspace
+ *  	
 	if (copy_to_user((void *)usertxbuf, kbuf->tx.data, kbuf->tx.size)) {
 		deb_error("copy_to_user(2) failed\n");
 		goto out_notok;
@@ -439,12 +397,12 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kbuf->tx.data=usertxbuf;
 	kbuf->rx.data=userrxbuf;
+*/
 	
 	if (copy_to_user((void *)buffer, kbuf, len)) {
 		deb_error("copy_to_user(1) failed\n");
 		goto out_notok;
 	}
-
 
 
 	kfree(kbuf);
@@ -460,17 +418,17 @@ out_cfu:
 
 }
 
-static const struct of_device_id bpmp_host_proxy_ids[] = {
-	{ .compatible = "nvidia,bpmp-host-proxy" },
+static const struct of_device_id gpio_host_proxy_ids[] = {
+	{ .compatible = "nvidia,gpio-host-proxy" },
 	{ }
 };
 
-static struct platform_driver bpmp_host_proxy_driver = {
+static struct platform_driver gpio_host_proxy_driver = {
 	.driver = {
-		.name = "bpmp_host_proxy",
-		.of_match_table = bpmp_host_proxy_ids,
+		.name = "gpio_host_proxy",
+		.of_match_table = gpio_host_proxy_ids,
 	},
-	.probe = bpmp_host_proxy_probe,
-	.remove = bpmp_host_proxy_remove,
+	.probe = gpio_host_proxy_probe,
+	.remove = gpio_host_proxy_remove,
 };
-builtin_platform_driver(bpmp_host_proxy_driver);
+builtin_platform_driver(gpio_host_proxy_driver);

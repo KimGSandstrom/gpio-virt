@@ -12,6 +12,10 @@
 #include <linux/fs.h>		  // File-system support.
 #include <linux/uaccess.h>	  // User access copy function support.
 #include <linux/platform_device.h>
+#include <linux/slab.h>
+#include <linux/mm.h>
+#include <linux/memory_hotplug.h>
+#include <linux/io.h>
 
 #define DEVICE_NAME "gpio-guest" // Device name.
 #define CLASS_NAME "char"	  
@@ -21,6 +25,7 @@ MODULE_AUTHOR("Kim Sandstrom");
 MODULE_DESCRIPTION("NVidia GPIO Guest Proxy Kernel Module"); 
 MODULE_VERSION("0.1");				 
 
+#define MEM_SIZE       0x0600	// arbitary size for the moment
 
 #define GPIO_GUEST_VERBOSE	0
 
@@ -47,86 +52,20 @@ MODULE_VERSION("0.1");
 
    __gpio_* from linux/gpio.h
    gpiod_* from /drivers/gpio/gpiolib.c
-
-int gpio_get_value(unsigned int gpio)
-{
-	return __gpio_get_value(gpio);
-}
-
-void gpio_set_value(unsigned int gpio, int value)
-{
-	__gpio_set_value(gpio, value);
-}
-
-bool gpio_is_valid(int number)
-{
-	return false;
-}
-
-int gpio_request(unsigned gpio, const char *label)
-{
-	return -ENOSYS;
-}
-
-static inline int gpio_request_one(unsigned gpio,
-					unsigned long flags, const char *label)
-{
-	return -ENOSYS;
-}
-
-static inline int devm_gpio_request_one(struct device *dev, unsigned gpio,
-					unsigned long flags, const char *label)
-{
-	WARN_ON(1);
-	return -EINVAL;
-}
-
-int gpio_set_debounce(unsigned gpio, unsigned debounce)
-{
-	return -ENOSYS;
-}
-
-int gpio_get_value(unsigned gpio)
-{ */
-	/* GPIO can never have been requested or set as {in,out}put */
-/*	WARN_ON(1);
-	return 0;
-}
-
-void gpio_set_value(unsigned gpio, int value)
-{ */
-	/* GPIO can never have been requested or set as output */
-/*	WARN_ON(1);
-}
-
-int gpio_get_value_cansleep(unsigned gpio)
-{ */
-	/* GPIO can never have been requested or set as {in,out}put */
-/*	WARN_ON(1);
-	return 0;
-}
-
-void gpio_set_value_cansleep(unsigned gpio, int value)
-{
-	/* GPIO can never have been requested or set as output */
-/*	WARN_ON(1);
-}
 */
-
-
-
-
-
-
 
 static volatile void __iomem  *mem_iova = NULL;
 
-extern int tegra_gpio_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
+
+// extern int tegra_gpio_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
 extern struct tegra_gpio *tegra_gpio_host_device;
-int my_tegra_gpio_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
+// int my_tegra_gpio_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
+static inline u32 my_pmx_readl(void __iomem *);
+static inline void my_pmx_writel(u32, void __iomem *);
 
 
-extern int (*tegra_gpio_transfer_redirect)(struct tegra_gpio *, struct tegra_gpio_message *);
+extern u32 (*tegra_gpio_readl_redirect)(void __iomem *);
+extern void (*tegra_gpio_writel_redirect)(u32, void __iomem *);
 extern int tegra_gpio_outloud;
 extern uint64_t gpio_vpa;
 
@@ -166,7 +105,7 @@ static struct file_operations fops =
 /**
  * Initializes module at installation
  */
-int tegra_gpio_guest_probe(void)
+int tegra_gpio_guest_init(void)
 {
 
 	
@@ -174,7 +113,7 @@ int tegra_gpio_guest_probe(void)
 
 	deb_info("gpio_vpa: 0x%llX", gpio_vpa);
 
-///!!!	if(!gpio_vpa){
+	if(!gpio_vpa){
 		deb_error("Failed, gpio_vpa not defined\n");
 	}
 
@@ -210,8 +149,8 @@ int tegra_gpio_guest_probe(void)
 
 	// map iomem (iomem used/provided by Qemu
 
-gpio is fake-physical memory
-mem_iova is kernel space io memory
+// gpio is fake-physical memory
+// mem_iova is kernel space io memory
 
 	mem_iova = ioremap(gpio_vpa, MEM_SIZE);
 
@@ -222,16 +161,11 @@ mem_iova is kernel space io memory
 
 	deb_info("gpio_vpa: 0x%llX, mem_iova: %p\n", gpio_vpa, mem_iova);
 
-
-
-
-//!!!!	tegra_gpio_transfer_redirect = my_tegra_gpio_transfer; // Hook func
-
-
+	tegra_gpio_readl_redirect = my_pmx_readl;
+	tegra_gpio_writel_redirect = my_pmx_writel;
 
 	return 0;
 }
-
 EXPORT_SYMBOL(tegra_gpio_guest_init);
 
 
@@ -245,8 +179,8 @@ void tegra_gpio_guest_cleanup(void)
 	// unmap iomem
 	iounmap((void __iomem*)gpio_vpa);
 
-	pmx_writel = NULL;   // unhook function
-	pmx_readl = NULL;   // unhook function
+	tegra_gpio_writel_redirect = NULL;   // unhook function
+	tegra_gpio_readl_redirect = NULL;   // unhook function
 	device_destroy(gpio_guest_proxy_class, MKDEV(major_number, 0)); // remove the device
 	class_unregister(gpio_guest_proxy_class);						  // unregister the device class
 	class_destroy(gpio_guest_proxy_class);						  // remove the device class
@@ -282,6 +216,7 @@ static int close(struct inode *inodep, struct file *filep)
 /*
  * Reads from device
  */
+static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
 	deb_info("read stub");
 	return 0;
@@ -302,24 +237,31 @@ struct tegra_pmx {
 };
 */
 
-static inline u32 my_pmx_readl(struct tegra_pmx *pmx, u32 bank, u32 reg);
+// tmp value for test
+#define GPIO_REG_SIZE 8
+
+static inline u32 my_pmx_readl(void __iomem *io)
 {
 	// return readl(pmx->regs[bank] + reg);
-	unsigned char io_buffer[MEM_SIZE];
+	unsigned char io_buffer[GPIO_REG_SIZE];
+	u32 val;
 
 	// copy read arguments to one single i-buffer 
+	memcpy(io_buffer, io, GPIO_REG_SIZE);			// construct io memory block
+	memcpy_toio(mem_iova, io_buffer, GPIO_REG_SIZE);	// copy to actual qemu io passthrough
+	
+	val = 123;	// tmp bluff
 
-memcpy(&io_buffer[TX_BUF], pmx->regs[bank] + reg, GPIO_REG_SIZE);	// construct io memory block
-memcpy_toio(mem_iova, io_buffer, GPIO_REG_SIZE);				// copy to actual qemu io passthrough
-
-	memcpy(&io_buffer[TX_BUF], pmx->regs[bank] + reg);	
+	return val;
 }
 
-static inline void my_pmx_writel(struct tegra_pmx *pmx, u32 val, u32 bank, u32 reg);
+static inline void my_pmx_writel(u32 val, void __iomem *io)
 {
-
+	unsigned char io_buffer[GPIO_REG_SIZE];
+	memcpy_fromio(io_buffer, mem_iova, GPIO_REG_SIZE);
 }
 
+/* included for reference
 int my_tegra_gpio_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *msg)
 {   
 
@@ -365,6 +307,8 @@ int my_tegra_gpio_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *m
 
 	return msg->rx.ret;
 }
+*/
+
 
 /*
  * Writes to the device
@@ -376,7 +320,8 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 {
 
 	int ret = len;
-	struct tegra_gpio_message *kbuf = NULL;
+	uint64_t *kbuf;
+//	struct tegra_gpio_message *kbuf = NULL;
 	void *txbuf = NULL;
 	void *rxbuf = NULL;
 	void *usertxbuf = NULL;
@@ -389,7 +334,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	deb_info(" wants to write %zu bytes\n", len);
-
+/* TODO do gpio here
 	if (len!=sizeof(struct tegra_gpio_message ))
 	{
 		deb_error("message size %zu != %zu", len, sizeof(struct tegra_gpio_message));
@@ -397,6 +342,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	ret = -ENOMEM;
+*/
 	kbuf = kmalloc(len, GFP_KERNEL);
 	txbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
 	rxbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
@@ -409,12 +355,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	memset(rxbuf, 0, len);
 
 	ret = -EFAULT;
-	
+
+/* copy gpio data from buffer */	
 	if (copy_from_user(kbuf, buffer, len)) {
 		deb_error("copy_from_user(1) failed\n");
 		goto out_cfu;
 	}
-
+/*
 	if (copy_from_user(txbuf, kbuf->tx.data, kbuf->tx.size)) {
 		deb_error("copy_from_user(2) failed\n");
 		goto out_cfu;
@@ -424,18 +371,22 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		deb_error("copy_from_user(3) failed\n");
 		goto out_cfu;
 	}	
+*/
 
-	usertxbuf = (void*)kbuf->tx.data; //save userspace buffers addresses
-	userrxbuf = kbuf->rx.data;
-
+// the following was needed in bpmp message struct
+//	usertxbuf = (void*)kbuf->tx.data; //save userspace buffers addresses
+//	userrxbuf = kbuf->rx.data;
+usertxbuf = (void*)kbuf;
+userrxbuf = (void*)kbuf;
+/*
 	kbuf->tx.data=txbuf; //reassing to kernel space buffers
 	kbuf->rx.data=rxbuf;
+*/
 
+//	TODO we do not have gpio specific functions yet
+//	ret = tegra_gpio_transfer(tegra_gpio_host_device, (struct tegra_gpio_message *)kbuf);
 
-	ret = tegra_gpio_transfer(tegra_gpio_host_device, (struct tegra_gpio_message *)kbuf);
-
-
-
+/*
 	if (copy_to_user((void *)usertxbuf, kbuf->tx.data, kbuf->tx.size)) {
 		deb_error("copy_to_user(2) failed\n");
 		goto out_notok;
@@ -448,7 +399,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kbuf->tx.data=usertxbuf;
 	kbuf->rx.data=userrxbuf;
-	
+*/	
 	if (copy_to_user((void *)buffer, kbuf, len)) {
 		deb_error("copy_to_user(1) failed\n");
 		goto out_notok;
