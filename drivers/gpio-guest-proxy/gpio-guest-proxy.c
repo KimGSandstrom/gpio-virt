@@ -57,16 +57,16 @@ MODULE_VERSION("0.1");
 static volatile void __iomem  *mem_iova = NULL;
 
 
-// extern int tegra_gpio_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
-extern struct tegra_gpio *tegra_gpio_host_device;
-// int my_tegra_gpio_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
+// extern int pmx_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
+extern struct tegra_gpio *pmx_host_device;
+// int my_pmx_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
 static inline u32 my_pmx_readl(void __iomem *);
 static inline void my_pmx_writel(u32, void __iomem *);
 
 
-extern u32 (*tegra_gpio_readl_redirect)(void __iomem *);
-extern void (*tegra_gpio_writel_redirect)(u32, void __iomem *);
-extern int tegra_gpio_outloud;
+extern u32 (*pmx_readl_redirect)(void __iomem *);
+extern void (*pmx_writel_redirect)(u32, void __iomem *);
+extern int pmx_outloud;
 extern uint64_t gpio_vpa;
 
 
@@ -105,7 +105,7 @@ static struct file_operations fops =
 /**
  * Initializes module at installation
  */
-int tegra_gpio_guest_init(void)
+int pmx_guest_init(void)
 {
 
 	
@@ -161,26 +161,26 @@ int tegra_gpio_guest_init(void)
 
 	deb_info("gpio_vpa: 0x%llX, mem_iova: %p\n", gpio_vpa, mem_iova);
 
-	tegra_gpio_readl_redirect = my_pmx_readl;
-	tegra_gpio_writel_redirect = my_pmx_writel;
+	pmx_readl_redirect = my_pmx_readl;
+	pmx_writel_redirect = my_pmx_writel;
 
 	return 0;
 }
-EXPORT_SYMBOL(tegra_gpio_guest_init);
+EXPORT_SYMBOL(pmx_guest_init);
 
 
 /*
  * Removes module, sends appropriate message to kernel
  */
-void tegra_gpio_guest_cleanup(void)
+void pmx_guest_cleanup(void)
 {
 	deb_info("removing module.\n");
 
 	// unmap iomem
 	iounmap((void __iomem*)gpio_vpa);
 
-	tegra_gpio_writel_redirect = NULL;   // unhook function
-	tegra_gpio_readl_redirect = NULL;   // unhook function
+	pmx_writel_redirect = NULL;   // unhook function
+	pmx_readl_redirect = NULL;   // unhook function
 	device_destroy(gpio_guest_proxy_class, MKDEV(major_number, 0)); // remove the device
 	class_unregister(gpio_guest_proxy_class);						  // unregister the device class
 	class_destroy(gpio_guest_proxy_class);						  // remove the device class
@@ -196,7 +196,7 @@ void tegra_gpio_guest_cleanup(void)
 static int open(struct inode *inodep, struct file *filep)
 {
 	deb_info("device opened.\n");
-	tegra_gpio_outloud = 1;
+	pmx_outloud = 1;
 	return 0;
 }
 
@@ -206,7 +206,7 @@ static int open(struct inode *inodep, struct file *filep)
 static int close(struct inode *inodep, struct file *filep)
 {
 	deb_info("device closed.\n");
-	tegra_gpio_outloud = 0;
+	pmx_outloud = 0;
 	return 0;
 }
 
@@ -262,7 +262,7 @@ static inline void my_pmx_writel(u32 val, void __iomem *io)
 }
 
 /* included for reference
-int my_tegra_gpio_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *msg)
+int my_pmx_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *msg)
 {   
 
 	unsigned char io_buffer[MEM_SIZE];
@@ -283,7 +283,7 @@ int my_tegra_gpio_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *m
 	memcpy(&io_buffer[MRQ], &msg->mrq, sizeof(msg->mrq));
 	
 
-	hexDump("msg", &msg, sizeof(struct tegra_gpio_message));
+	hexDump("msg", &msg, sizeof(struct pmx_message));
 	deb_info("msg.tx.data: %p\n", msg->tx.data);
 	hexDump("msg.tx.data", msg->tx.data, msg->tx.size);
 	deb_info("msg->rx.size: %ld\n", msg->rx.size);
@@ -321,7 +321,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	int ret = len;
 	uint64_t *kbuf;
-//	struct tegra_gpio_message *kbuf = NULL;
+//	struct pmx_message *kbuf = NULL;
 	void *txbuf = NULL;
 	void *rxbuf = NULL;
 	void *usertxbuf = NULL;
@@ -335,9 +335,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	deb_info(" wants to write %zu bytes\n", len);
 /* TODO do gpio here
-	if (len!=sizeof(struct tegra_gpio_message ))
+	if (len!=sizeof(struct pmx_message ))
 	{
-		deb_error("message size %zu != %zu", len, sizeof(struct tegra_gpio_message));
+		deb_error("message size %zu != %zu", len, sizeof(struct pmx_message));
 		goto out_notok;
 	}
 
@@ -384,7 +384,7 @@ userrxbuf = (void*)kbuf;
 */
 
 //	TODO we do not have gpio specific functions yet
-//	ret = tegra_gpio_transfer(tegra_gpio_host_device, (struct tegra_gpio_message *)kbuf);
+//	ret = pmx_transfer(tegra_gpio_host_device, (struct tegra_gpio_message *)kbuf);
 
 /*
 	if (copy_to_user((void *)usertxbuf, kbuf->tx.data, kbuf->tx.size)) {
