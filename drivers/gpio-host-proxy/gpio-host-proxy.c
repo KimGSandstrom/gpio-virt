@@ -16,13 +16,15 @@
 //#include "gpio-host-proxy.h"
 #include <linux/of_device.h>
 
+#include "../gpio-guest-proxy/gpio-guest-proxy.h"
+
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
 
-MODULE_LICENSE("GPL");						 ///< The license type -- this affects available functionality
-MODULE_AUTHOR("Kim Sandström");					 ///< The author -- visible when you use modinfo
-MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module"); ///< The description -- see modinfo
-MODULE_VERSION("0.1");						 ///< A version number to inform users
+MODULE_LICENSE("GPL");						///< The license type -- this affects available functionality
+MODULE_AUTHOR("Kim Sandström");					///< The author -- visible when you use modinfo
+MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module");	///< The description -- see modinfo
+MODULE_VERSION("0.0");						///< A version number to inform users
 
 
 #define GPIO_HOST_VERBOSE    0
@@ -283,13 +285,10 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
 /*
 static bool check_if_allowed(int val)
 {
-	return false;
+	return false;struct tegra
 }
 */
 
-extern struct tegra_gpio *tegra_gpio_host_device;
-
-#define BUF_SIZE 1024 
 
 /*
  * Writes to the device
@@ -297,11 +296,12 @@ extern struct tegra_gpio *tegra_gpio_host_device;
 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
+	extern struct tegra_gpio *tegra_pmx_host;
 
 	int ret = len;
-	uint64_t *kbuf = NULL;
-	void *txbuf = NULL;
-	void *rxbuf = NULL;
+	struct tegra_gpio_op *kbuf = NULL;
+//	void *txbuf = NULL;
+//	void *rxbuf = NULL;
 //	void *usertxbuf = NULL;
 //	void *userrxbuf = NULL;
 
@@ -364,24 +364,23 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	hexDump (DEVICE_NAME ": kbuf", kbuf, len);
 	hexDump (DEVICE_NAME ": txbuf", txbuf, kbuf->tx.size);
-
-	if(!tegra_bpmp_host_device){
+*/
+	if(!tegra_pmx_host){
 		deb_error("host device not initialised, can't do transfer!");
 		return -EFAULT;
 	}
 
-	if(!check_if_allowed(kbuf)){
-		goto out_cfu;
-	}
+// TODO: this will be very simple
+//	if(!check_if_allowed(kbuf)){
+//		goto out_cfu;
+//	}
 
-*/
+//  this function definition originally in tegra_kernel-5.10/drivers/firmware/tegra/bpmp.c
+//  tegra_bpmp_transfer_redirect hook is used in that function
 //	ret = tegra_bpmp_transfer(tegra_bpmp_host_device, (struct tegra_bpmp_message *)kbuf);
-
 
 //	TODO
 //	do gpio operation with kbuf
-
-
 	
 /* 	copy result to userspace
  *  	
@@ -397,23 +396,21 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kbuf->tx.data=usertxbuf;
 	kbuf->rx.data=userrxbuf;
-*/
-	
-	if (copy_to_user((void *)buffer, kbuf, len)) {
+
 		deb_error("copy_to_user(1) failed\n");
 		goto out_notok;
 	}
-
+*/
 
 	kfree(kbuf);
 	return len;
-out_notok:
+//out_notok:
 out_nomem:
 	deb_error("memory allocation failed");
 out_cfu:
 	kfree(kbuf);
-	kfree(txbuf);
-	kfree(rxbuf);
+//	kfree(txbuf);
+//	kfree(rxbuf);
     return -EINVAL;
 
 }

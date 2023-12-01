@@ -17,6 +17,8 @@
 #include <linux/memory_hotplug.h>
 #include <linux/io.h>
 
+#include "gpio-guest-proxy.h"
+
 #define DEVICE_NAME "gpio-guest" // Device name.
 #define CLASS_NAME "char"	  
 
@@ -58,7 +60,7 @@ static volatile void __iomem  *mem_iova = NULL;
 
 
 // extern int pmx_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
-extern struct tegra_gpio *pmx_host_device;
+extern struct tegra_gpio *tegra_pmx_host;
 // int my_pmx_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
 static inline u32 my_pmx_readl(void __iomem *);
 static inline void my_pmx_writel(u32, void __iomem *);
@@ -190,6 +192,46 @@ void pmx_guest_cleanup(void)
 	return;
 }
 
+static inline u32 my_pmx_readl(void __iomem *io_addr)
+{
+	struct tegra_gpio_op io_data = {
+		.signal = 'r',
+		.io_address = io_addr,
+		.value = -1
+	};
+	// u32 val; 
+
+	// Execute the request by copying to qemu-io-memory for chardev passthrough
+	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
+	// irq is handled by char device at this point
+
+	// Read response from char device (qemu-io-memory)
+	// the value read from gpio
+	// for return value we do not need the address or the signal
+	memcpy_fromio(&io_data.value, mem_iova, sizeof(u32));
+
+	return io_data.value;
+}
+
+static inline void my_pmx_writel(u32 val, void __iomem *io_addr)
+{
+	struct tegra_gpio_op io_data = {
+		.signal = 'w',
+		.io_address = io_addr,
+		.value = val
+	};
+
+	// Execute the request by copying to qemu-io-memory for chardev passthrough
+	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
+	// irq is handled by char device at this point
+
+	memcpy_fromio(&io_data, mem_iova, sizeof(struct tegra_gpio_op));
+
+// make sure pinmux register write completed
+// TODO: better if host end of chardev passthrough handles this alone
+	// my_pmx_readl(io_mem);
+}
+
 /*
  * Opens device module, sends appropriate message to kernel
  */
@@ -210,19 +252,7 @@ static int close(struct inode *inodep, struct file *filep)
 	return 0;
 }
 
-
-
-
-/*
- * Reads from device
- */
-static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset)
-{
-	deb_info("read stub");
-	return 0;
-}
-
-/*
+/* struct copied here for read reference
 struct tegra_pmx {
 	struct device *dev;
 	struct pinctrl_dev *pctl;
@@ -237,78 +267,15 @@ struct tegra_pmx {
 };
 */
 
-// tmp value for test
-#define GPIO_REG_SIZE 8
-
-static inline u32 my_pmx_readl(void __iomem *io)
+/*
+ * Reads from device
+ */
+static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset)
 {
-	// return readl(pmx->regs[bank] + reg);
-	unsigned char io_buffer[GPIO_REG_SIZE];
-	u32 val;
-
-	// copy read arguments to one single i-buffer 
-	memcpy(io_buffer, io, GPIO_REG_SIZE);			// construct io memory block
-	memcpy_toio(mem_iova, io_buffer, GPIO_REG_SIZE);	// copy to actual qemu io passthrough
-	
-	val = 123;	// tmp bluff
-
-	return val;
+// TODO we need this function§
+	deb_info("read stub");
+	return 0;
 }
-
-static inline void my_pmx_writel(u32 val, void __iomem *io)
-{
-	unsigned char io_buffer[GPIO_REG_SIZE];
-	memcpy_fromio(io_buffer, mem_iova, GPIO_REG_SIZE);
-}
-
-/* included for reference
-int my_pmx_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *msg)
-{   
-
-	unsigned char io_buffer[MEM_SIZE];
-	deb_info("%s\n", __func__);
-
-	memset(io_buffer, 0, sizeof(io_buffer));
-	
-	if (msg->tx.size >= MESSAGE_SIZE)
-		return -EINVAL;
-
-	// Copy msg, tx data and rx data to a single io_buffer
-	memcpy(&io_buffer[TX_BUF], msg->tx.data, msg->tx.size);
-	memcpy(&io_buffer[TX_SIZ], &msg->tx.size, sizeof(msg->tx.size));
-	
-	memcpy(&io_buffer[RX_BUF], msg->rx.data, msg->rx.size);
-	memcpy(&io_buffer[RX_SIZ], &msg->rx.size, sizeof(msg->rx.size));
-
-	memcpy(&io_buffer[MRQ], &msg->mrq, sizeof(msg->mrq));
-	
-
-	hexDump("msg", &msg, sizeof(struct pmx_message));
-	deb_info("msg.tx.data: %p\n", msg->tx.data);
-	hexDump("msg.tx.data", msg->tx.data, msg->tx.size);
-	deb_info("msg->rx.size: %ld\n", msg->rx.size);
-	
-	// Execute the request by coping the io_buffer
-	memcpy_toio(mem_iova, io_buffer, MEM_SIZE);
-
-	// Read response to io_buffer
-	memcpy_fromio(io_buffer, mem_iova, MEM_SIZE);
-
-	// Copy from io_buffer to msg, tx data and rx data
-	memcpy(&msg->tx.size, &io_buffer[TX_SIZ], sizeof(msg->tx.size));
-	memcpy((void *)msg->tx.data, &io_buffer[TX_BUF], msg->tx.size);
-
-	memcpy(&msg->rx.size, &io_buffer[RX_SIZ], sizeof(msg->rx.size));
-	memcpy(msg->rx.data, &io_buffer[RX_BUF], msg->rx.size);
-	
-	memcpy(&msg->rx.ret, &io_buffer[RET_COD], sizeof(msg->rx.ret));
-
-	deb_info("%s, END ret: %d\n", __func__, msg->rx.ret);
-
-	return msg->rx.ret;
-}
-*/
-
 
 /*
  * Writes to the device
@@ -316,16 +283,12 @@ int my_pmx_transfer(struct tegra_gpio *gpio, struct tegra_gpio_message *msg)
 
 #define BUF_SIZE 1024 
 
+// 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 
 	int ret = len;
 	uint64_t *kbuf;
-//	struct pmx_message *kbuf = NULL;
-	void *txbuf = NULL;
-	void *rxbuf = NULL;
-	void *usertxbuf = NULL;
-	void *userrxbuf = NULL;
 
 	if (len > 65535) {	/* paranoia */
 		deb_error("count %zu exceeds max # of bytes allowed, "
@@ -334,25 +297,22 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	deb_info(" wants to write %zu bytes\n", len);
-/* TODO do gpio here
-	if (len!=sizeof(struct pmx_message ))
+
+	if (len!=sizeof(struct tegra_gpio_op))
 	{
-		deb_error("message size %zu != %zu", len, sizeof(struct pmx_message));
+		deb_error("message size %zu != %zu", len, sizeof(struct tegra_gpio_op));
 		goto out_notok;
 	}
 
 	ret = -ENOMEM;
-*/
-	kbuf = kmalloc(len, GFP_KERNEL);
-	txbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
-	rxbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
 
-	if (!kbuf || !txbuf || !rxbuf)
+	kbuf = kmalloc(len, GFP_KERNEL);
+
+//	if (!kbuf || !txbuf || !rxbuf)
+	if (!kbuf)
 		goto out_nomem;
 
 	memset(kbuf, 0, len);
-	memset(txbuf, 0, len);
-	memset(rxbuf, 0, len);
 
 	ret = -EFAULT;
 
@@ -361,51 +321,15 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		deb_error("copy_from_user(1) failed\n");
 		goto out_cfu;
 	}
-/*
-	if (copy_from_user(txbuf, kbuf->tx.data, kbuf->tx.size)) {
-		deb_error("copy_from_user(2) failed\n");
-		goto out_cfu;
-	}
 
-	if (copy_from_user(rxbuf, kbuf->rx.data, kbuf->rx.size)) {
-		deb_error("copy_from_user(3) failed\n");
-		goto out_cfu;
-	}	
-*/
-
-// the following was needed in bpmp message struct
-//	usertxbuf = (void*)kbuf->tx.data; //save userspace buffers addresses
-//	userrxbuf = kbuf->rx.data;
-usertxbuf = (void*)kbuf;
-userrxbuf = (void*)kbuf;
-/*
-	kbuf->tx.data=txbuf; //reassing to kernel space buffers
-	kbuf->rx.data=rxbuf;
-*/
-
-//	TODO we do not have gpio specific functions yet
+//	TODO we do not have a gpio specific function yet
 //	ret = pmx_transfer(tegra_gpio_host_device, (struct tegra_gpio_message *)kbuf);
 
-/*
-	if (copy_to_user((void *)usertxbuf, kbuf->tx.data, kbuf->tx.size)) {
-		deb_error("copy_to_user(2) failed\n");
-		goto out_notok;
-	}
 
-	if (copy_to_user((void *)userrxbuf, kbuf->rx.data, kbuf->rx.size)) {
-		deb_error("copy_to_user(3) failed\n");
-		goto out_notok;
-	}
-
-	kbuf->tx.data=usertxbuf;
-	kbuf->rx.data=userrxbuf;
-*/	
 	if (copy_to_user((void *)buffer, kbuf, len)) {
 		deb_error("copy_to_user(1) failed\n");
 		goto out_notok;
 	}
-
-
 
 	kfree(kbuf);
 	return len;
@@ -414,8 +338,7 @@ out_nomem:
 	deb_error ("memory allocation failed");
 out_cfu:
 	kfree(kbuf);
-	kfree(txbuf);
-	kfree(rxbuf);
 	return -EINVAL;
 }
+
 
