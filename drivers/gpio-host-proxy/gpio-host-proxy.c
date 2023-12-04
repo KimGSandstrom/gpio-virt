@@ -37,6 +37,10 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 
 #define deb_error(...)    printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
 
+extern struct tegra_pmx *tegra_pmx_host;
+extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
+extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
+
 /**
  * Important variables that store data and keep track of relevant information.
  */
@@ -85,8 +89,8 @@ void static hexDump (
 
     int i;
     unsigned char buff[17];
-	unsigned char out_buff[4000];
-	unsigned char *p_out_buff = out_buff;
+    unsigned char out_buff[4000];
+    unsigned char *p_out_buff = out_buff;
     const unsigned char * pc = (const unsigned char *)addr;
 
 
@@ -296,14 +300,9 @@ static bool check_if_allowed(int val)
 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	extern struct tegra_gpio *tegra_pmx_host;
-
 	int ret = len;
 	struct tegra_gpio_op *kbuf = NULL;
-//	void *txbuf = NULL;
-//	void *rxbuf = NULL;
-//	void *usertxbuf = NULL;
-//	void *userrxbuf = NULL;
+	u32 bank, reg;
 
 	if (len > 65535) {	/* paranoia */
 		deb_error("count %zu exceeds max # of bytes allowed, "
@@ -313,105 +312,65 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	deb_info("wants to write %zu bytes\n", len);
 
-
 	ret = -ENOMEM;
 	kbuf = kmalloc(len, GFP_KERNEL);
-
 
 	if (!kbuf)
 		goto out_nomem;
 
 	memset(kbuf, 0, len);
 
+	if(len != sizeof(struct tegra_gpio_op) + 2*sizeof(u32) );
+		deb_error("Illegal data length %s\n", __func__);
+
 	ret = -EFAULT;
 	
-	// Copy header
-	if (copy_from_user(kbuf, buffer, len)) {
+	// Copy header (header is / tegra_gpio_op / bank / reg / )
+	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_op))) {
 		deb_error("copy_from_user(1) failed\n");
 		goto out_cfu;
 	}
 
-// kbuf is in kernel space
-/* do whatever with kbuff here	
-	if(kbuf->tx.size > 0){
-		txbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
-		if (!txbuf)
-			goto out_nomem;
-		memset(txbuf, 0, BUF_SIZE);
-		if (copy_from_user(txbuf, kbuf->tx.data, kbuf->tx.size)) {
-			deb_error("copy_from_user(2) failed\n");
-			goto out_cfu;
-		}
-	}
-
-	rxbuf = kmalloc(BUF_SIZE, GFP_KERNEL);
-	if (!rxbuf)
-		goto out_nomem;
-	
-	memset(rxbuf, 0, BUF_SIZE);
-	if (copy_from_user(rxbuf, kbuf->rx.data, kbuf->rx.size)) {
-		deb_error("copy_from_user(3) failed\n");
-		goto out_cfu;
-	}	
-
-
-	usertxbuf = (void*)kbuf->tx.data; //save userspace buffers addresses
-	userrxbuf = kbuf->rx.data;
-
-
-	kbuf->tx.data = txbuf; //reassing to kernel space buffers
-	kbuf->rx.data = rxbuf;
-
-	hexDump (DEVICE_NAME ": kbuf", kbuf, len);
-	hexDump (DEVICE_NAME ": txbuf", txbuf, kbuf->tx.size);
-*/
 	if(!tegra_pmx_host){
 		deb_error("host device not initialised, can't do transfer!");
 		return -EFAULT;
 	}
+
+	bank = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op));
+	reg  = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op) + sizeof(u32));
+	// kbuf->io_address = tegra_pmx_host->regs[bank] + reg;
 
 // TODO: this will be very simple
 //	if(!check_if_allowed(kbuf)){
 //		goto out_cfu;
 //	}
 
-//  this function definition originally in tegra_kernel-5.10/drivers/firmware/tegra/bpmp.c
-//  tegra_bpmp_transfer_redirect hook is used in that function
-//	ret = tegra_bpmp_transfer(tegra_bpmp_host_device, (struct tegra_bpmp_message *)kbuf);
+	// calls pmx_readl or pmx_writel depending on which ...
+	switch (kbuf->signal) {
+		case 'r':
+			kbuf->value = pmx_readl(tegra_pmx_host, bank, reg);	// no offset because its already in kbuf->address
+		break;
+		case 'w':
+			pmx_writel(tegra_pmx_host, kbuf->value, bank, reg);
+		break;
+		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
+		break;
+	};
 
-//	TODO
-//	do gpio operation with kbuf
-	
-/* 	copy result to userspace
- *  	
-	if (copy_to_user((void *)usertxbuf, kbuf->tx.data, kbuf->tx.size)) {
-		deb_error("copy_to_user(2) failed\n");
-		goto out_notok;
-	}
-
-	if (copy_to_user((void *)userrxbuf, kbuf->rx.data, kbuf->rx.size)) {
-		deb_error("copy_to_user(3) failed\n");
-		goto out_notok;
-	}
-
-	kbuf->tx.data=usertxbuf;
-	kbuf->rx.data=userrxbuf;
-
+	if (copy_to_user((void *)buffer, kbuf, len)) {
 		deb_error("copy_to_user(1) failed\n");
 		goto out_notok;
 	}
-*/
+
 
 	kfree(kbuf);
 	return len;
-//out_notok:
+out_notok:
 out_nomem:
 	deb_error("memory allocation failed");
 out_cfu:
 	kfree(kbuf);
-//	kfree(txbuf);
-//	kfree(rxbuf);
-    return -EINVAL;
+	return -EINVAL;
 
 }
 

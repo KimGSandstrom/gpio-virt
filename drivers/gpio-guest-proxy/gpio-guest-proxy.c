@@ -58,16 +58,14 @@ MODULE_VERSION("0.1");
 
 static volatile void __iomem  *mem_iova = NULL;
 
-
-// extern int pmx_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
-extern struct tegra_gpio *tegra_pmx_host;
-// int my_pmx_transfer(struct tegra_gpio *, struct tegra_gpio_message *);
+extern struct tegra_pmx *tegra_pmx_host;
+extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
+extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
+extern u32 (*pmx_readl_redirect)(void __iomem *);
+extern void (*pmx_writel_redirect)(u32, void __iomem *);
 static inline u32 my_pmx_readl(void __iomem *);
 static inline void my_pmx_writel(u32, void __iomem *);
 
-
-extern u32 (*pmx_readl_redirect)(void __iomem *);
-extern void (*pmx_writel_redirect)(u32, void __iomem *);
 extern int pmx_outloud;
 extern uint64_t gpio_vpa;
 
@@ -286,9 +284,9 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
 // 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-
 	int ret = len;
-	uint64_t *kbuf;
+	struct tegra_gpio_op *kbuf;
+	u32 bank, reg;
 
 	if (len > 65535) {	/* paranoia */
 		deb_error("count %zu exceeds max # of bytes allowed, "
@@ -308,7 +306,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kbuf = kmalloc(len, GFP_KERNEL);
 
-//	if (!kbuf || !txbuf || !rxbuf)
+	if(len != sizeof(struct tegra_gpio_op) + 2*sizeof(u32) )
+		deb_error("Illegal data length %s\n", __func__);
+
 	if (!kbuf)
 		goto out_nomem;
 
@@ -316,15 +316,32 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	ret = -EFAULT;
 
-/* copy gpio data from buffer */	
+	/* copy gpio data from buffer */	
 	if (copy_from_user(kbuf, buffer, len)) {
 		deb_error("copy_from_user(1) failed\n");
 		goto out_cfu;
 	}
 
-//	TODO we do not have a gpio specific function yet
-//	ret = pmx_transfer(tegra_gpio_host_device, (struct tegra_gpio_message *)kbuf);
+	if(!tegra_pmx_host){
+		deb_error("host device not initialised, can't do transfer!");
+		return -EFAULT;
+	}
 
+	bank = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op));
+	reg  = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op) + sizeof(u32));
+	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[bank] + reg;
+
+	switch(kbuf->signal) {
+		case 'r':
+			kbuf->value = pmx_readl(tegra_pmx_host, bank, reg);
+		break;
+		case 'w':
+			pmx_writel(tegra_pmx_host, kbuf->value, bank, reg);
+		break;
+		default:
+			deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
+		break;
+	}
 
 	if (copy_to_user((void *)buffer, kbuf, len)) {
 		deb_error("copy_to_user(1) failed\n");
