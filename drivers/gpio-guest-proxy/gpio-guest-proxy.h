@@ -13,6 +13,8 @@ struct tegra_gpio_op {
 	enum tegra_gpio_signal signal;	// signal tetemining if it's a read or write operation
 	void __iomem *io_address;		// this defines the io bank and register. no need to follow the pointer value.
 	u32 value;			// either the returned read value or a write value
+	u32 bank;
+	u32 reg;
 };
 
 #endif

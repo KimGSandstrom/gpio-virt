@@ -13,9 +13,8 @@
 #include <linux/slab.h>
 //#include <soc/tegra/gpio.h>
 #include <linux/platform_device.h>
-//#include "gpio-host-proxy.h"
 #include <linux/of_device.h>
-
+//#include "gpio-host-proxy.h"
 #include "../gpio-guest-proxy/gpio-guest-proxy.h"
 
 #define DEVICE_NAME "gpio-host"   // Device name.
@@ -60,7 +59,6 @@ static ssize_t write(struct file *, const char *, size_t, loff_t *);
 /**
  * File operations structure and the functions it points to.
  */
-
 static struct file_operations fops =
 	{
 		.owner = THIS_MODULE,
@@ -281,7 +279,7 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
 	return 0;
 }
 
-// TODO, we do not pass gpio-messages
+// TODO
 /*
  * Checks if the value to transmit through the
  * gpio-host is allowed by the device tree configuration
@@ -289,7 +287,7 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
 /*
 static bool check_if_allowed(int val)
 {
-	return false;struct tegra
+	return false;
 }
 */
 
@@ -302,7 +300,6 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 {
 	int ret = len;
 	struct tegra_gpio_op *kbuf = NULL;
-	u32 bank, reg;
 
 	if (len > 65535) {	/* paranoia */
 		deb_error("count %zu exceeds max # of bytes allowed, "
@@ -324,7 +321,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		deb_error("Illegal data length %s\n", __func__);
 
 	ret = -EFAULT;
-	
+// TODO
+// what format do we want to use?
+// guest does not include bank and reg	
 	// Copy header (header is / tegra_gpio_op / bank / reg / )
 	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_op))) {
 		deb_error("copy_from_user(1) failed\n");
@@ -336,9 +335,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		return -EFAULT;
 	}
 
-	bank = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op));
-	reg  = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op) + sizeof(u32));
-	// kbuf->io_address = tegra_pmx_host->regs[bank] + reg;
+	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[kbuf->bank] + kbuf->reg;
 
 // TODO: this will be very simple
 //	if(!check_if_allowed(kbuf)){
@@ -348,10 +345,10 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	// calls pmx_readl or pmx_writel depending on which ...
 	switch (kbuf->signal) {
 		case 'r':
-			kbuf->value = pmx_readl(tegra_pmx_host, bank, reg);	// no offset because its already in kbuf->address
+			kbuf->value = pmx_readl(tegra_pmx_host, kbuf->bank, kbuf->reg);
 		break;
 		case 'w':
-			pmx_writel(tegra_pmx_host, kbuf->value, bank, reg);
+			pmx_writel(tegra_pmx_host, kbuf->value, kbuf->bank, kbuf->reg);
 		break;
 		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
 		break;

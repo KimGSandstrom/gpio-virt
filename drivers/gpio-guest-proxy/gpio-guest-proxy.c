@@ -25,36 +25,20 @@
 MODULE_LICENSE("GPL");						 
 MODULE_AUTHOR("Kim Sandstrom");					 
 MODULE_DESCRIPTION("NVidia GPIO Guest Proxy Kernel Module"); 
-MODULE_VERSION("0.1");				 
+MODULE_VERSION("0.0");				 
 
-#define MEM_SIZE       0x0600	// arbitary size for the moment
+
 
 #define GPIO_GUEST_VERBOSE	0
 
 #if GPIO_GUEST_VERBOSE
-#define deb_info(...)	 printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
+#define deb_info(...)	printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
 #else
 #define deb_info(...)
 #endif
 
 #define deb_error(...)	printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
 
-
-// functions to virtualise taken from kernel-5.10/include/linux/gpio.h
-//
-//
-// NOTE:
-// kernel-5.10/drivers/gpio/gpiolib.c:static void gpiod_set_raw_value_commit(struct gpio_desc *desc, bool value)
-// kernel-5.10/drivers/gpio/gpiolib.c:void gpiod_set_raw_value(struct gpio_desc *desc, int value)
-// kernel-5.10/drivers/gpio/gpiolib.c:void gpiod_set_raw_value_cansleep(struct gpio_desc *desc, int value)
-
-/* generic functions
-   these functions seemed a possible approach
-   but they are not triggered in a general test
-
-   __gpio_* from linux/gpio.h
-   gpiod_* from /drivers/gpio/gpiolib.c
-*/
 
 static volatile void __iomem  *mem_iova = NULL;
 
@@ -63,6 +47,7 @@ extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
 extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
 extern u32 (*pmx_readl_redirect)(void __iomem *);
 extern void (*pmx_writel_redirect)(u32, void __iomem *);
+
 static inline u32 my_pmx_readl(void __iomem *);
 static inline void my_pmx_writel(u32, void __iomem *);
 
@@ -99,13 +84,10 @@ static struct file_operations fops =
 };
 
 
-#if GPIO_GUEST_VERBOSE
-#endif
-
 /**
  * Initializes module at installation
  */
-int pmx_guest_init(void)
+int tegra_gpio_guest_init(void)
 {
 
 	
@@ -147,12 +129,10 @@ int pmx_guest_init(void)
 	}
 	deb_info("device class created correctly\n"); // Made it! device was initialized
 
-	// map iomem (iomem used/provided by Qemu
-
-// gpio is fake-physical memory
-// mem_iova is kernel space io memory
-
-	mem_iova = ioremap(gpio_vpa, MEM_SIZE);
+	// map iomem (iomem used/provided by Qemu)
+	// gpio is fake-physical memory
+	// mem_iova is kernel space io memory
+	mem_iova = ioremap(gpio_vpa, sizeof(struct tegra_gpio_op));
 
 	if (!mem_iova) {
 		deb_error("ioremap failed\n");
@@ -166,7 +146,7 @@ int pmx_guest_init(void)
 
 	return 0;
 }
-EXPORT_SYMBOL(pmx_guest_init);
+EXPORT_SYMBOL(tegra_gpio_guest_init);
 
 
 /*
@@ -179,8 +159,8 @@ void pmx_guest_cleanup(void)
 	// unmap iomem
 	iounmap((void __iomem*)gpio_vpa);
 
-	pmx_writel_redirect = NULL;   // unhook function
-	pmx_readl_redirect = NULL;   // unhook function
+	pmx_writel_redirect = NULL;	// unhook function
+	pmx_readl_redirect = NULL;	// unhook function
 	device_destroy(gpio_guest_proxy_class, MKDEV(major_number, 0)); // remove the device
 	class_unregister(gpio_guest_proxy_class);						  // unregister the device class
 	class_destroy(gpio_guest_proxy_class);						  // remove the device class
@@ -188,46 +168,6 @@ void pmx_guest_cleanup(void)
 	deb_info("Goodbye from the LKM!\n");
 	unregister_chrdev(major_number, DEVICE_NAME);
 	return;
-}
-
-static inline u32 my_pmx_readl(void __iomem *io_addr)
-{
-	struct tegra_gpio_op io_data = {
-		.signal = 'r',
-		.io_address = io_addr,
-		.value = -1
-	};
-	// u32 val; 
-
-	// Execute the request by copying to qemu-io-memory for chardev passthrough
-	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
-	// irq is handled by char device at this point
-
-	// Read response from char device (qemu-io-memory)
-	// the value read from gpio
-	// for return value we do not need the address or the signal
-	memcpy_fromio(&io_data.value, mem_iova, sizeof(u32));
-
-	return io_data.value;
-}
-
-static inline void my_pmx_writel(u32 val, void __iomem *io_addr)
-{
-	struct tegra_gpio_op io_data = {
-		.signal = 'w',
-		.io_address = io_addr,
-		.value = val
-	};
-
-	// Execute the request by copying to qemu-io-memory for chardev passthrough
-	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
-	// irq is handled by char device at this point
-
-	memcpy_fromio(&io_data, mem_iova, sizeof(struct tegra_gpio_op));
-
-// make sure pinmux register write completed
-// TODO: better if host end of chardev passthrough handles this alone
-	// my_pmx_readl(io_mem);
 }
 
 /*
@@ -250,6 +190,15 @@ static int close(struct inode *inodep, struct file *filep)
 	return 0;
 }
 
+/*
+ * Reads from device
+ */
+static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset)
+{
+	deb_info("read stub");
+	return 0;
+}
+
 /* struct copied here for read reference
 struct tegra_pmx {
 	struct device *dev;
@@ -265,28 +214,59 @@ struct tegra_pmx {
 };
 */
 
-/*
- * Reads from device
- */
-static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset)
+static inline u32 my_pmx_readl(void __iomem *io_addr)
 {
-// TODO we need this function§
-	deb_info("read stub");
-	return 0;
+	struct tegra_gpio_op io_data = {
+		.signal = 'r',
+		.io_address = io_addr,
+		.value = -1
+	};
+
+	deb_info("%s\n", __func__);
+
+	// Execute the request by copying to qemu-io-memory for chardev passthrough
+	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
+	// irq is handled by char device at this point
+
+	// Read response from char device (qemu-io-memory)
+	// the value read from gpio
+	// for return value we do not need the address or the signal
+	memcpy_fromio(&io_data.value, mem_iova, sizeof(u32));
+
+	return io_data.value;
+}
+
+static inline void my_pmx_writel(u32 val, void __iomem *io_addr)
+{
+	struct tegra_gpio_op io_data = {
+		.signal = 'w',
+		.io_address = io_addr,
+		.value = val
+	};
+
+	deb_info("%s\n", __func__);
+
+	// Execute the request by copying to qemu-io-memory for chardev passthrough
+	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
+
+	// read response
+	// memcpy_fromio(&io_data, mem_iova, sizeof(struct tegra_gpio_op));
+
+	// make sure pinmux register write completed
+	// TODO: better if host end of passthrough handles this alone
+	my_pmx_readl(io_data.io_address);
 }
 
 /*
  * Writes to the device
  */
 
-#define BUF_SIZE 1024 
-
-// 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	int ret = len;
 	struct tegra_gpio_op *kbuf;
-	u32 bank, reg;
+
+	deb_info("%s\n", __func__);
 
 	if (len > 65535) {	/* paranoia */
 		deb_error("count %zu exceeds max # of bytes allowed, "
@@ -327,16 +307,14 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		return -EFAULT;
 	}
 
-	bank = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op));
-	reg  = *(u32 *)(kbuf + sizeof(struct tegra_gpio_op) + sizeof(u32));
-	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[bank] + reg;
+	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[kbuf->bank] + kbuf->reg;
 
 	switch(kbuf->signal) {
 		case 'r':
-			kbuf->value = pmx_readl(tegra_pmx_host, bank, reg);
+			kbuf->value = pmx_readl(tegra_pmx_host, kbuf->bank, kbuf->reg);
 		break;
 		case 'w':
-			pmx_writel(tegra_pmx_host, kbuf->value, bank, reg);
+			pmx_writel(tegra_pmx_host, kbuf->value, kbuf->bank, kbuf->reg);
 		break;
 		default:
 			deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
