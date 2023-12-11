@@ -15,7 +15,7 @@
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
 //#include "gpio-host-proxy.h"
-#include "../gpio-guest-proxy/gpio-guest-proxy.h"
+#include "../gpio-host-proxy/gpio-host-proxy.h"
 
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
@@ -25,7 +25,7 @@ MODULE_AUTHOR("Kim Sandström");					///< The author -- visible when you use mod
 MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module");	///< The description -- see modinfo
 MODULE_VERSION("0.0");						///< A version number to inform users
 
-
+#define GPIO_VERBOSE
 #define GPIO_HOST_VERBOSE    0
 
 #if GPIO_HOST_VERBOSE
@@ -317,7 +317,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	memset(kbuf, 0, len);
 
-	if(len != sizeof(struct tegra_gpio_op) + 2*sizeof(u32) );
+	if(len != sizeof(struct tegra_gpio_op));
 		deb_error("Illegal data length %s\n", __func__);
 
 	ret = -EFAULT;

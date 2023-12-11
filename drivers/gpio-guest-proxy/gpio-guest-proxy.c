@@ -17,7 +17,7 @@
 #include <linux/memory_hotplug.h>
 #include <linux/io.h>
 
-#include "gpio-guest-proxy.h"
+#include "../gpio-host-proxy/gpio-host-proxy.h"
 
 #define DEVICE_NAME "gpio-guest" // Device name.
 #define CLASS_NAME "char"	  
@@ -39,6 +39,7 @@ MODULE_VERSION("0.0");
 
 #define deb_error(...)	printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
 
+#define GPIO_VERBOSE
 
 static volatile void __iomem  *mem_iova = NULL;
 
@@ -129,9 +130,10 @@ int tegra_gpio_guest_init(void)
 	}
 	deb_info("device class created correctly\n"); // Made it! device was initialized
 
-	// map iomem (iomem used/provided by Qemu)
-	// gpio is fake-physical memory
-	// mem_iova is kernel space io memory
+	// map iomem used/provided by Qemu
+	// gpio_vpa is fake-physical memory
+	// value of gpio_vpa defines address in io-space, 
+	// second parameter gives the size of the memory range
 	mem_iova = ioremap(gpio_vpa, sizeof(struct tegra_gpio_op));
 
 	if (!mem_iova) {
