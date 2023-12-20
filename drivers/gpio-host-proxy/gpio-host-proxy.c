@@ -36,9 +36,10 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 
 #define deb_error(...)    printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
 
-extern struct tegra_pmx *tegra_pmx_host;
-extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
-extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
+// extern struct tegra_pmx *tegra_pmx_host;
+// extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
+// extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
+extern struct tegra_gpio *tegra_gpio_host;
 
 /**
  * Important variables that store data and keep track of relevant information.
@@ -295,13 +296,20 @@ static bool check_if_allowed(int val)
 /*
  * Writes to the device
  */
+ 
+static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
+{
+	deb_info("write stub");
+	return 0;
+}
 
+/* pmx version of write in host-proxy driver commented out
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	int ret = len;
 	struct tegra_gpio_op *kbuf = NULL;
 
-	if (len > 65535) {	/* paranoia */
+	if (len > 65535) {	
 		deb_error("count %zu exceeds max # of bytes allowed, "
 			"aborting write\n", len);
 		goto out_nomem;
@@ -337,7 +345,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[kbuf->bank] + kbuf->reg;
 
-// TODO: this will be very simple
+// todo: this will be very simple
 //	if(!check_if_allowed(kbuf)){
 //		goto out_cfu;
 //	}
@@ -370,6 +378,7 @@ out_cfu:
 	return -EINVAL;
 
 }
+*/
 
 static const struct of_device_id gpio_host_proxy_ids[] = {
 	{ .compatible = "nvidia,gpio-host-proxy" },

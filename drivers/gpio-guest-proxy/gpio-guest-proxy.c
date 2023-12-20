@@ -43,14 +43,17 @@ MODULE_VERSION("0.0");
 
 static volatile void __iomem  *mem_iova = NULL;
 
-extern struct tegra_pmx *tegra_pmx_host;
-extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
-extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
-extern u32 (*pmx_readl_redirect)(void __iomem *);
-extern void (*pmx_writel_redirect)(u32, void __iomem *);
+// extern struct tegra_pmx *tegra_pmx_host;
+extern struct tegra_gpio *tegra_gpio_host;
+// extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
+// extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
+// extern u32 (*pmx_readl_redirect)(void __iomem *);
+// extern void (*pmx_writel_redirect)(u32, void __iomem *);
 
-static inline u32 my_pmx_readl(void __iomem *);
-static inline void my_pmx_writel(u32, void __iomem *);
+// static inline u32 my_pmx_readl(void __iomem *);
+// static inline void my_pmx_writel(u32, void __iomem *);
+extern void (*tegra186_gpio_set_redirect)(const char *, unsigned int, int);
+void my_tegra186_gpio_set(const char *, unsigned int, int);
 
 extern int pmx_outloud;
 extern uint64_t gpio_vpa;
@@ -134,7 +137,7 @@ int tegra_gpio_guest_init(void)
 	// gpio_vpa is fake-physical memory
 	// value of gpio_vpa defines address in io-space, 
 	// second parameter gives the size of the memory range
-	mem_iova = ioremap(gpio_vpa, sizeof(struct tegra_gpio_op));
+	mem_iova = ioremap(gpio_vpa, sizeof(struct tegra_gpio_pt));
 
 	if (!mem_iova) {
 		deb_error("ioremap failed\n");
@@ -143,8 +146,9 @@ int tegra_gpio_guest_init(void)
 
 	deb_info("gpio_vpa: 0x%llX, mem_iova: %p\n", gpio_vpa, mem_iova);
 
-	pmx_readl_redirect = my_pmx_readl;
-	pmx_writel_redirect = my_pmx_writel;
+  // pmx_readl_redirect = my_pmx_readl;
+  // pmx_writel_redirect = my_pmx_writel;
+  tegra186_gpio_set_redirect = my_tegra186_gpio_set; 
 
 	return 0;
 }
@@ -154,15 +158,16 @@ EXPORT_SYMBOL(tegra_gpio_guest_init);
 /*
  * Removes module, sends appropriate message to kernel
  */
-void pmx_guest_cleanup(void)
+void tegra_gpio_guest_cleanup(void)
 {
 	deb_info("removing module.\n");
 
 	// unmap iomem
 	iounmap((void __iomem*)gpio_vpa);
 
-	pmx_writel_redirect = NULL;	// unhook function
-	pmx_readl_redirect = NULL;	// unhook function
+	// pmx_writel_redirect = NULL;	// unhook function
+	// pmx_readl_redirect = NULL;	// unhook function
+	tegra186_gpio_set_redirect = NULL;	// unhook function
 	device_destroy(gpio_guest_proxy_class, MKDEV(major_number, 0)); // remove the device
 	class_unregister(gpio_guest_proxy_class);						  // unregister the device class
 	class_destroy(gpio_guest_proxy_class);						  // remove the device class
@@ -216,6 +221,7 @@ struct tegra_pmx {
 };
 */
 
+/* pmx based implementation commented out
 static inline u32 my_pmx_readl(void __iomem *io_addr)
 {
 	struct tegra_gpio_op io_data = {
@@ -258,15 +264,38 @@ static inline void my_pmx_writel(u32 val, void __iomem *io_addr)
 	// TODO: better if host end of passthrough handles this alone
 	my_pmx_readl(io_data.io_address);
 }
+*/
+
+void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level)
+{
+	struct tegra_gpio_pt io_data = {
+	.signal = 's',       // 's' stands for "set"
+	// .label = memcpy...gpio_label,
+	.offset = offset,
+	.level = level
+	};
+	
+	deb_info("%s\n", __func__);
+	
+	// copy the label of the gpiochip 
+	// At this moment we might not pass through both chips -- thus this is maybe redundant
+	memcpy(io_data.label, gpio_label, strlen(gpio_label)+1);
+	
+	// Execute the request by copying to qemu-io-memory for chardev passthrough
+	memcpy_toio(mem_iova, &io_data, sizeof(io_data));
+	
+	// read response (no response)
+	// memcpy_fromio(io_data.label, mem_iova, sizeof(struct tegra186_gpio_pt));
+}
 
 /*
- * Writes to the device
+ * Writes to the char device
  */
 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	int ret = len;
-	struct tegra_gpio_op *kbuf;
+	struct tegra_gpio_pt *kbuf;
 
 	deb_info("%s\n", __func__);
 
@@ -278,9 +307,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	deb_info(" wants to write %zu bytes\n", len);
 
-	if (len!=sizeof(struct tegra_gpio_op))
+	if (len!=sizeof(struct tegra_gpio_pt))
 	{
-		deb_error("message size %zu != %zu", len, sizeof(struct tegra_gpio_op));
+		deb_error("message size %zu != %zu", len, sizeof(struct tegra_gpio_pt));
 		goto out_notok;
 	}
 
@@ -288,7 +317,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kbuf = kmalloc(len, GFP_KERNEL);
 
-	if(len != sizeof(struct tegra_gpio_op) + 2*sizeof(u32) )
+	if(len != sizeof(struct tegra_gpio_pt) + 2*sizeof(u32) )
 		deb_error("Illegal data length %s\n", __func__);
 
 	if (!kbuf)
@@ -304,13 +333,15 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		goto out_cfu;
 	}
 
-	if(!tegra_pmx_host){
+//	if(!tegra_pmx_host){
+    if(!tegra_gpio_host){
 		deb_error("host device not initialised, can't do transfer!");
 		return -EFAULT;
 	}
 
 	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[kbuf->bank] + kbuf->reg;
 
+  /* pmx code commented out
 	switch(kbuf->signal) {
 		case 'r':
 			kbuf->value = pmx_readl(tegra_pmx_host, kbuf->bank, kbuf->reg);
@@ -322,11 +353,25 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 			deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
 		break;
 	}
+  */
 
+	switch(kbuf->signal) {
+		case 's':
+      // TODO check which function should be called here
+			// kbuf->value = tegra186_gpio_set(tegra_gpio_host, kbuf->offset, kbuf->level);
+		break;
+		default:
+      // only 's' for "set" is implemented
+			deb_error("Illegal signal type in %s\n", __func__);
+		break;
+	}
+
+  /* there is no retun value
 	if (copy_to_user((void *)buffer, kbuf, len)) {
 		deb_error("copy_to_user(1) failed\n");
 		goto out_notok;
 	}
+  */
 
 	kfree(kbuf);
 	return len;

@@ -3,6 +3,7 @@
 
 #include <linux/types.h>  // For __iomem definition
 #include <linux/io.h>	// For functions related to I/O operations
+#include <stddef.h>
 
 enum tegra_gpio_signal {
 	GPIO_READ = 'r',
@@ -25,6 +26,33 @@ struct tegra_gpio_op {
 };
 
 _Static_assert( (sizeof(struct tegra_gpio_op) % 8) == 0,
-               "tegra_gpio_io not aligned to 64 bits\n");
+               "tegra_gpio_io is not aligned to 64 bits\n");
+
+enum tegra_gpio_pt_signal{
+	GPIO_SET = 's',     // set level
+	GPIO_GET = 'g',     // get level
+	GPIO_DIR = 'd',     // get direction
+	GPIO_SET_IN = 'i',  // set direction to input
+	GPIO_SET_OUT = 'o', // set direction to output
+	GPIO_CONFIG = 'c'   // set config
+};
+
+_Static_assert(sizeof(enum tegra_gpio_pt_signal) == 4,
+               "Enum size failure\n");
+
+#define GPIOCHIP_PTLABEL 12 // max size of gpio chip's label (a char string)
+
+struct tegra_gpio_pt {
+	enum tegra_gpio_pt_signal signal;	// defines operation -- at the moment only 's' for "set"
+	char label[GPIOCHIP_PTLABEL];		// label of gpio chip
+	unsigned int offset;				// register offset
+	int level;			        		// pin level to be set
+};
+
+#define STRINGIFY(x) #x
+
+_Static_assert( ( sizeof(struct tegra_gpio_pt) % 8 ) == 0,
+               "tegra_gpio_pt size is not aligned to 64 bits. Size is: " 
+               "sizeof(struct tegra_gpio_pt) = " STRINGIFY(sizeof(struct tegra_gpio_pt)));
 
 #endif
