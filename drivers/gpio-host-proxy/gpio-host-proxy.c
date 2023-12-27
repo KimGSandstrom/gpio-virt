@@ -14,8 +14,8 @@
 //#include <soc/tegra/gpio.h>
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
-//#include "gpio-host-proxy.h"
 #include "../gpio-host-proxy/gpio-host-proxy.h"
+#include <linux/gpio/driver.h>
 
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
@@ -39,7 +39,10 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 // extern struct tegra_pmx *tegra_pmx_host;
 // extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
 // extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
-extern struct tegra_gpio *tegra_gpio_host;
+#define MAX_CHIPS 2		// note this definition must match extern definintion (on NVIDIA Jetson AGX Orin it is 2)
+extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration is in driver.h
+
+extern void tegra186_gpio_set(struct gpio_chip *, unsigned int, int);
 
 /**
  * Important variables that store data and keep track of relevant information.
@@ -299,8 +302,74 @@ static bool check_if_allowed(int val)
  
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	deb_info("write stub");
-	return 0;
+	int ret = len;
+	int i = 0;
+	struct tegra_gpio_pt *kbuf = NULL;
+	
+	if (len > 65535) {	
+		deb_error("count %zu exceeds max # of bytes allowed, "
+			"aborting write\n", len);
+		goto out_nomem;
+	}
+
+	deb_info("wants to write %zu bytes\n", len);
+
+	ret = -ENOMEM;
+	kbuf = kmalloc(len, GFP_KERNEL);
+
+	if (!kbuf)
+		goto out_nomem;
+
+	memset(kbuf, 0, len);
+
+	if(len != sizeof(struct tegra_gpio_pt));
+		deb_error("Illegal data length %s\n", __func__);
+
+	ret = -EFAULT;
+	// Copy header
+	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_pt))) {
+		deb_error("copy_from_user(1) failed\n");
+		goto out_cfu;
+	}
+
+	// check if host has initialised gpio chip
+	while (i <= MAX_CHIPS) {
+		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ){ i++; } // chip not found
+		else { break; }
+	}
+	if ( i > 2) 
+	{
+		deb_error("host device not initialised, can't do transfer!");
+		return -EFAULT;
+	}
+
+	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
+
+	// make call to manipulate pins
+	switch (kbuf->signal) {
+		// only 's' for "set" is implemented at the moment
+		case 's':		
+			tegra186_gpio_set(tegra_gpio_hosts[i], kbuf->offset, kbuf->level);  		// only funtion implemented at the moment
+		break;
+		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
+		break;
+	};
+
+	// no need to copy a response because there is none.
+	// if (copy_to_user((void *)buffer, kbuf, len)) {
+	//	deb_error("copy_to_user(1) failed\n");
+	//	goto out_notok;
+	// }
+
+
+	kfree(kbuf);
+	return len;
+// out_notok:
+out_nomem:
+	deb_error("memory allocation failed");
+out_cfu:
+	kfree(kbuf);
+	return -EINVAL;
 }
 
 /* pmx version of write in host-proxy driver commented out

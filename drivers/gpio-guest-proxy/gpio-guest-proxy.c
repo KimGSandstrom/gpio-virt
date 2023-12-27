@@ -16,8 +16,8 @@
 #include <linux/mm.h>
 #include <linux/memory_hotplug.h>
 #include <linux/io.h>
-
 #include "../gpio-host-proxy/gpio-host-proxy.h"
+#include <linux/gpio/driver.h>
 
 #define DEVICE_NAME "gpio-guest" // Device name.
 #define CLASS_NAME "char"	  
@@ -44,7 +44,9 @@ MODULE_VERSION("0.0");
 static volatile void __iomem  *mem_iova = NULL;
 
 // extern struct tegra_pmx *tegra_pmx_host;
-extern struct tegra_gpio *tegra_gpio_host;
+#define MAX_CHIPS 2		// note this definition must match extern definintion (on NVIDIA Jetson AGX Orin it is 2)
+extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration is in driver.h
+
 // extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
 // extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
 // extern u32 (*pmx_readl_redirect)(void __iomem *);
@@ -54,8 +56,9 @@ extern struct tegra_gpio *tegra_gpio_host;
 // static inline void my_pmx_writel(u32, void __iomem *);
 extern void (*tegra186_gpio_set_redirect)(const char *, unsigned int, int);
 void my_tegra186_gpio_set(const char *, unsigned int, int);
+extern void tegra186_gpio_set(struct gpio_chip *, unsigned int, int);
 
-extern int pmx_outloud;
+extern int gpio_outloud;
 extern uint64_t gpio_vpa;
 
 
@@ -183,7 +186,7 @@ void tegra_gpio_guest_cleanup(void)
 static int open(struct inode *inodep, struct file *filep)
 {
 	deb_info("device opened.\n");
-	pmx_outloud = 1;
+	gpio_outloud = 1;
 	return 0;
 }
 
@@ -193,7 +196,7 @@ static int open(struct inode *inodep, struct file *filep)
 static int close(struct inode *inodep, struct file *filep)
 {
 	deb_info("device closed.\n");
-	pmx_outloud = 0;
+	gpio_outloud = 0;
 	return 0;
 }
 
@@ -289,98 +292,77 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
 }
 
 /*
- * Writes to the char device
+ * Writes to the device
  */
-
+ 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	int ret = len;
-	struct tegra_gpio_pt *kbuf;
-
-	deb_info("%s\n", __func__);
-
-	if (len > 65535) {	/* paranoia */
+	int i = 0;
+	struct tegra_gpio_pt *kbuf = NULL;
+	
+	if (len > 65535) {	
 		deb_error("count %zu exceeds max # of bytes allowed, "
 			"aborting write\n", len);
 		goto out_nomem;
 	}
 
-	deb_info(" wants to write %zu bytes\n", len);
-
-	if (len!=sizeof(struct tegra_gpio_pt))
-	{
-		deb_error("message size %zu != %zu", len, sizeof(struct tegra_gpio_pt));
-		goto out_notok;
-	}
+	deb_info("wants to write %zu bytes\n", len);
 
 	ret = -ENOMEM;
-
 	kbuf = kmalloc(len, GFP_KERNEL);
-
-	if(len != sizeof(struct tegra_gpio_pt) + 2*sizeof(u32) )
-		deb_error("Illegal data length %s\n", __func__);
 
 	if (!kbuf)
 		goto out_nomem;
 
 	memset(kbuf, 0, len);
 
-	ret = -EFAULT;
+	if(len != sizeof(struct tegra_gpio_pt));
+		deb_error("Illegal data length %s\n", __func__);
 
-	/* copy gpio data from buffer */	
-	if (copy_from_user(kbuf, buffer, len)) {
+	ret = -EFAULT;
+	// Copy header
+	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_pt))) {
 		deb_error("copy_from_user(1) failed\n");
 		goto out_cfu;
 	}
 
-//	if(!tegra_pmx_host){
-    if(!tegra_gpio_host){
+	// check if host has initialised gpio chip
+	while (i <= MAX_CHIPS) {
+		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ){ i++; } // chip not found
+		else { break; }
+	}
+	if ( i > 2) 
+	{
 		deb_error("host device not initialised, can't do transfer!");
 		return -EFAULT;
 	}
 
-	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[kbuf->bank] + kbuf->reg;
+	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
 
-  /* pmx code commented out
-	switch(kbuf->signal) {
-		case 'r':
-			kbuf->value = pmx_readl(tegra_pmx_host, kbuf->bank, kbuf->reg);
+	// make call to manipulate pins
+	switch (kbuf->signal) {
+		// only 's' for "set" is implemented at the moment
+		case 's':		
+			tegra186_gpio_set(tegra_gpio_hosts[i], kbuf->offset, kbuf->level);  		// only funtion implemented at the moment
 		break;
-		case 'w':
-			pmx_writel(tegra_pmx_host, kbuf->value, kbuf->bank, kbuf->reg);
+		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
 		break;
-		default:
-			deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
-		break;
-	}
-  */
+	};
 
-	switch(kbuf->signal) {
-		case 's':
-      // TODO check which function should be called here
-			// kbuf->value = tegra186_gpio_set(tegra_gpio_host, kbuf->offset, kbuf->level);
-		break;
-		default:
-      // only 's' for "set" is implemented
-			deb_error("Illegal signal type in %s\n", __func__);
-		break;
-	}
+	// no need to copy a response because there is none.
+	// if (copy_to_user((void *)buffer, kbuf, len)) {
+	//	deb_error("copy_to_user(1) failed\n");
+	//	goto out_notok;
+	// }
 
-  /* there is no retun value
-	if (copy_to_user((void *)buffer, kbuf, len)) {
-		deb_error("copy_to_user(1) failed\n");
-		goto out_notok;
-	}
-  */
 
 	kfree(kbuf);
 	return len;
-out_notok:
+// out_notok:
 out_nomem:
-	deb_error ("memory allocation failed");
+	deb_error("memory allocation failed");
 out_cfu:
 	kfree(kbuf);
 	return -EINVAL;
 }
-
-
