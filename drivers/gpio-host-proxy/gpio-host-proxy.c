@@ -26,7 +26,7 @@ MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module");	///< The description
 MODULE_VERSION("0.0");						///< A version number to inform users
 
 #define GPIO_VERBOSE
-#define GPIO_HOST_VERBOSE    0
+#define GPIO_HOST_VERBOSE    1
 
 #if GPIO_HOST_VERBOSE
 #define deb_info(...)     printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
@@ -344,6 +344,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
+	hexDump ("Chardev struct:",kbuf, len);
 
 	// make call to manipulate pins
 	switch (kbuf->signal) {

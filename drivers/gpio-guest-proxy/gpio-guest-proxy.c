@@ -29,7 +29,7 @@ MODULE_VERSION("0.0");
 
 
 
-#define GPIO_GUEST_VERBOSE	0
+#define GPIO_GUEST_VERBOSE	1
 
 #if GPIO_GUEST_VERBOSE
 #define deb_info(...)	printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
