@@ -76,7 +76,7 @@ int main(int argc, char *argv[]) {
     sleep(1);
     gpiod_chip_close(chip);
 
-    printf("Closed line and chip with one second pause between line and chip.\n");
+    printf("Released line and closed chip with one second pause in between.\n");
 
     return 0;
 }

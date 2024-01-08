@@ -43,6 +43,7 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 // extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
 #define MAX_CHIPS 2		// note this definition must match extern definintion (on NVIDIA Jetson AGX Orin it is 2)
 extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration is in driver.h
+extern struct gpio_device *proxy_host_gpio_dev[MAX_CHIPS];
 
 extern int gpiod_request_by_name(const char *);
 extern int gpiochip_generic_request_by_name(const char *, unsigned);
