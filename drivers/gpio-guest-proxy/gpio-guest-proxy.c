@@ -32,12 +32,14 @@ MODULE_VERSION("0.0");
 #define GPIO_GUEST_VERBOSE	1
 
 #if GPIO_GUEST_VERBOSE
-#define deb_info(...)	printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
+#define deb_info(...)     printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
+#define deb_debug(...)    printk(KERN_DEBUG DEVICE_NAME ": "__VA_ARGS__)
 #else
 #define deb_info(...)
+#define deb_debug(...)
 #endif
 
-#define deb_error(...)	printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
+#define deb_error(...)	printk(KERN_ERR DEVICE_NAME ": "__VA_ARGS__)
 
 #define GPIO_VERBOSE
 
@@ -87,8 +89,8 @@ static struct file_operations fops =
 		.open = open,
 		.release = close,
 		.read = read,
-		.write = write,
-};
+		.write = write
+	};
 
 
 /**
@@ -149,9 +151,9 @@ int tegra_gpio_guest_init(void)
 
 	deb_info("gpio_vpa: 0x%llX, mem_iova: %p\n", gpio_vpa, mem_iova);
 
-  // pmx_readl_redirect = my_pmx_readl;
-  // pmx_writel_redirect = my_pmx_writel;
-  tegra186_gpio_set_redirect = my_tegra186_gpio_set; 
+	// pmx_readl_redirect = my_pmx_readl;
+	// pmx_writel_redirect = my_pmx_writel;
+	tegra186_gpio_set_redirect = my_tegra186_gpio_set; 
 
 	return 0;
 }
@@ -209,66 +211,6 @@ static ssize_t read(struct file *filep, char *buffer, size_t len, loff_t *offset
 	return 0;
 }
 
-/* struct copied here for read reference
-struct tegra_pmx {
-	struct device *dev;
-	struct pinctrl_dev *pctl;
-
-	const struct tegra_pinctrl_soc_data *soc;
-	const char **group_pins;
-
-	int nbanks;
-	void __iomem **regs;
-	u32 *backup_regs;
-	u32 *gpio_conf;
-};
-*/
-
-/* pmx based implementation commented out
-static inline u32 my_pmx_readl(void __iomem *io_addr)
-{
-	struct tegra_gpio_op io_data = {
-		.signal = 'r',
-		.io_address = io_addr,
-		.value = -1
-	};
-
-	deb_info("%s\n", __func__);
-
-	// Execute the request by copying to qemu-io-memory for chardev passthrough
-	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
-	// irq is handled by char device at this point
-
-	// Read response from char device (qemu-io-memory)
-	// the value read from gpio
-	// for return value we do not need the address or the signal
-	memcpy_fromio(&io_data.value, mem_iova, sizeof(u32));
-
-	return io_data.value;
-}
-
-static inline void my_pmx_writel(u32 val, void __iomem *io_addr)
-{
-	struct tegra_gpio_op io_data = {
-		.signal = 'w',
-		.io_address = io_addr,
-		.value = val
-	};
-
-	deb_info("%s\n", __func__);
-
-	// Execute the request by copying to qemu-io-memory for chardev passthrough
-	memcpy_toio(mem_iova, &io_data, sizeof(struct tegra_gpio_op));
-
-	// read response
-	// memcpy_fromio(&io_data, mem_iova, sizeof(struct tegra_gpio_op));
-
-	// make sure pinmux register write completed
-	// TODO: better if host end of passthrough handles this alone
-	my_pmx_readl(io_data.io_address);
-}
-*/
-
 void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level)
 {
 	struct tegra_gpio_pt io_data = {
@@ -294,51 +236,66 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
 /*
  * Writes to the device
  */
- 
+
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	int ret = len;
 	int i = 0;
 	struct tegra_gpio_pt *kbuf = NULL;
+
+	deb_info("wants to write %zu bytes\n", len);
 	
 	if (len > 65535) {	
 		deb_error("count %zu exceeds max # of bytes allowed, "
 			"aborting write\n", len);
-		goto out_nomem;
+		return -EINVAL;
 	}
 
-	deb_info("wants to write %zu bytes\n", len);
+	if(len != sizeof(struct tegra_gpio_pt)) {
+		deb_error("Illegal data length %s\n", __func__);
+		return -EFAULT;
+	}
 
-	ret = -ENOMEM;
 	kbuf = kmalloc(len, GFP_KERNEL);
-
-	if (!kbuf)
-		goto out_nomem;
+	if ( !kbuf ) {
+	  deb_error("memory allocation failed");
+	  return -ENOMEM;
+	}
 
 	memset(kbuf, 0, len);
 
-	if(len != sizeof(struct tegra_gpio_pt));
-		deb_error("Illegal data length %s\n", __func__);
-
-	ret = -EFAULT;
 	// Copy header
 	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_pt))) {
-		deb_error("copy_from_user(1) failed\n");
-		goto out_cfu;
+		deb_error("copy_from_user failed\n");
+	  kfree(kbuf);
+	  return -EINVAL;
+	}
+
+	// copied user parameters
+	printk(KERN_DEBUG "GPIO chardev parameters: Chip %s, Offset %d, Level %d", kbuf->label, kbuf->offset, kbuf->level);
+	
+	if ( strlen(kbuf->label) >= GPIOCHIP_PTLABEL ) {
+	  printk(KERN_ERR "GPIO chardev label length is too big");
+	  kfree(kbuf);
+	  return -EINVAL;
 	}
 
 	// check if host has initialised gpio chip
 	while (i <= MAX_CHIPS) {
-		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ){ i++; } // chip not found
+		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ) {
+		i++; // chip not found
+		}
 		else { break; }
 	}
-	if ( i > 2) 
+
+	if ( i >= MAX_CHIPS) 
 	{
 		deb_error("host device not initialised, can't do transfer!");
+		kfree(kbuf);
 		return -EFAULT;
 	}
 
 	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
+	// hexDump ("Chardev struct:",kbuf, len);  // hexDump is defined in gpio-host-proxy.c
 
 	// make call to manipulate pins
 	switch (kbuf->signal) {
@@ -359,10 +316,4 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kfree(kbuf);
 	return len;
-// out_notok:
-out_nomem:
-	deb_error("memory allocation failed");
-out_cfu:
-	kfree(kbuf);
-	return -EINVAL;
 }

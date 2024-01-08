@@ -34,13 +34,15 @@ enum tegra_gpio_pt_signal{
 	GPIO_DIR = 'd',     // get direction
 	GPIO_SET_IN = 'i',  // set direction to input
 	GPIO_SET_OUT = 'o', // set direction to output
-	GPIO_CONFIG = 'c'   // set config
+	GPIO_CONFIG = 'c',  // set config
+	GPIO_REQ = 'r',		// generic request
+	GPIO_FREE = 'f'		// free
 };
 
 _Static_assert(sizeof(enum tegra_gpio_pt_signal) == 4,
                "Enum size failure\n");
 
-#define GPIOCHIP_PTLABEL 12 // max size of gpio chip's label (a char string)
+#define GPIOCHIP_PTLABEL 20 // max size of gpio chip's label (a char string)
 
 struct tegra_gpio_pt {
 	enum tegra_gpio_pt_signal signal;	// defines operation -- at the moment only 's' for "set"

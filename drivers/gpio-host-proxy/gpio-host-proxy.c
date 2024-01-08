@@ -30,11 +30,13 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 
 #if GPIO_HOST_VERBOSE
 #define deb_info(...)     printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
+#define deb_debug(...)    printk(KERN_DEBUG DEVICE_NAME ": "__VA_ARGS__)
 #else
 #define deb_info(...)
+#define deb_debug(...)
 #endif
 
-#define deb_error(...)    printk(KERN_ALERT DEVICE_NAME ": "__VA_ARGS__)
+#define deb_error(...)    printk(KERN_ERR DEVICE_NAME ": "__VA_ARGS__)
 
 // extern struct tegra_pmx *tegra_pmx_host;
 // extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
@@ -42,7 +44,14 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 #define MAX_CHIPS 2		// note this definition must match extern definintion (on NVIDIA Jetson AGX Orin it is 2)
 extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration is in driver.h
 
+extern int gpiod_request_by_name(const char *);
+extern int gpiochip_generic_request_by_name(const char *, unsigned);
+extern int tegra186_gpio_get_direction_by_name(const char *, unsigned int);
+extern int tegra186_gpio_direction_input_by_name(const char *, unsigned int);
+extern int tegra186_gpio_direction_output_by_name(const char *, unsigned int);
+extern void tegra186_gpio_set_by_name(const char *, unsigned int, int);
 extern void tegra186_gpio_set(struct gpio_chip *, unsigned int, int);
+extern void gpiod_free_by_name(const char *name);
 
 /**
  * Important variables that store data and keep track of relevant information.
@@ -69,11 +78,11 @@ static struct file_operations fops =
 		.open = open,
 		.release = close,
 		.read = read,
-		.write = write,
-};
+		.write = write
+	};
 
 // GPIO allowed resources structure
-// static struct gpio_allowed_res gpio_ares; 
+// static struct gpio_allowed_res gpio_ares;
 
 #if GPIO_HOST_VERBOSE
 // Usage:
@@ -83,81 +92,81 @@ static struct file_operations fops =
 //         len:     the number of bytes to dump.
 //         perLine: number of bytes on each output line.
 void static hexDump (
-    const char * desc,
-    const void * addr,
-    const int len
+	const char * desc,
+	const void * addr,
+	const int len
 ) {
-    // Silently ignore silly per-line values.
+	// Silently ignore silly per-line values.
 
-    int i;
-    unsigned char buff[17];
-    unsigned char out_buff[4000];
-    unsigned char *p_out_buff = out_buff;
-    const unsigned char * pc = (const unsigned char *)addr;
+	int i;
+	unsigned char buff[17];
+	unsigned char out_buff[4000];
+	unsigned char *p_out_buff = out_buff;
+	const unsigned char * pc = (const unsigned char *)addr;
 
 
 
-    // Output description if given.
+	// Output description if given.
 
-    if (desc != NULL) printk ("%s:\n", desc);
+	if (desc != NULL) printk ("%s:\n", desc);
 
-    // Length checks.
+	// Length checks.
 
-    if (len == 0) {
-        printk(DEVICE_NAME ":   ZERO LENGTH\n");
-        return;
-    }
-    if (len < 0) {
-        printk(DEVICE_NAME ":   NEGATIVE LENGTH: %d\n", len);
-        return;
-    }
+	if (len == 0) {
+		printk(DEVICE_NAME ":   ZERO LENGTH\n");
+		return;
+	}
+	if (len < 0) {
+		printk(DEVICE_NAME ":   NEGATIVE LENGTH: %d\n", len);
+		return;
+	}
 
 	if(len > 400){
-        printk(DEVICE_NAME ":   VERY LONG: %d\n", len);
-        return;
-    }
+		printk(DEVICE_NAME ":   VERY LONG: %d\n", len);
+		return;
+	}
 
-    // Process every byte in the data.
+	// Process every byte of hexDump the data.
 
-    for (i = 0; i < len; i++) {
-        // Multiple of perLine means new or first line (with line offset).
+	for (i = 0; i < len; i++) {
+		// Multiple of perLine means new or first line (with line offset).
 
-        if ((i % 16) == 0) {
-            // Only print previous-line ASCII buffer for lines beyond first.
+		if ((i % 16) == 0) {
+			// Only print previous-line ASCII buffer for lines beyond first.
 
-            if (i != 0) {
+			if (i != 0) {
 				p_out_buff += sprintf (p_out_buff, "  %s\n", buff);
 			}
-            // Output the offset of current line.
+			// Output the offset of current line.
 
-            p_out_buff += sprintf (p_out_buff,"  %04x ", i);
-        }
+			p_out_buff += sprintf (p_out_buff,"  %04x ", i);
+		}
 
-        // Now the hex code for the specific character.
+		// Now the hex code for the specific character.
 
-        p_out_buff += sprintf (p_out_buff, " %02x", pc[i]);
+		p_out_buff += sprintf (p_out_buff, " %02x", pc[i]);
 
-        // And buffer a printable ASCII character for later.
+		// And buffer a printable ASCII character for later.
 
-        if ((pc[i] < 0x20) || (pc[i] > 0x7e)) // isprint() may be better.
-            buff[i % 16] = '.';
-        else
-            buff[i % 16] = pc[i];
-        buff[(i % 16) + 1] = '\0';
-    }
+		if ((pc[i] < 0x20) || (pc[i] > 0x7e)) // isprint() may be better.
+			buff[i % 16] = '.';
+		else
+			buff[i % 16] = pc[i];
+		buff[(i % 16) + 1] = '\0';
+	}
 
-    // Pad out last line if not exactly perLine characters.
+	// Pad out last line if not exactly perLine characters.
 
-    while ((i % 16) != 0) {
-        p_out_buff += sprintf (p_out_buff, "   ");
-        i++;
-    }
+	while ((i % 16) != 0) {
+		p_out_buff += sprintf (p_out_buff, "   ");
+		i++;
+	}
 
-    // And print the final ASCII buffer.
+	// And print the final ASCII buffer.
 
-    p_out_buff += sprintf (p_out_buff, "  %s\n", buff);
+	p_out_buff += sprintf (p_out_buff, "  %s\n", buff);
 
-	printk(DEVICE_NAME ": %s", out_buff);
+	printk(DEVICE_NAME ": \n%s", out_buff);
 }
 #else
 	#define hexDump(...)
@@ -169,7 +178,7 @@ void static hexDump (
 static int gpio_host_proxy_probe(struct platform_device *pdev)
 {
 //	int i;
-	
+
 	deb_info("%s, installing module.", __func__);
 
 // *********************
@@ -177,7 +186,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 
 //	// Read allowed clocks and reset from the device tree
 //	// if clocks or resets are not defined, not initialize the module
-//	gpio_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
+//	gpio_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node,
 //		"allowed-clocks", gpio_ares.clock, 0, GPIO_HOST_MAX_CLOCKS_SIZE);
 //
 //	if(gpio_ares.clocks_size <= 0){
@@ -190,7 +199,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 //		deb_info("gpio_ares.clock %d", gpio_ares.clock[i]);
 //	}
 //
-//	gpio_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node, 
+//	gpio_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node,
 //		"allowed-resets", gpio_ares.reset, 0, GPIO_HOST_MAX_RESETS_SIZE);
 //
 //	if(gpio_ares.resets_size <= 0){
@@ -228,7 +237,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 	gpio_host_proxy_device = device_create(gpio_host_proxy_class, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
 	if (IS_ERR(gpio_host_proxy_device))
 	{								 // Clean up if there is an error
-		class_destroy(gpio_host_proxy_class); 
+		class_destroy(gpio_host_proxy_class);
 		unregister_chrdev(major_number, DEVICE_NAME);
 		deb_error("Failed to create the device\n");
 		return PTR_ERR(gpio_host_proxy_device);
@@ -295,160 +304,137 @@ static bool check_if_allowed(int val)
 }
 */
 
-
 /*
  * Writes to the device
  */
- 
+
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	int ret = len;
-	int i = 0;
+	int ret = -1;
 	struct tegra_gpio_pt *kbuf = NULL;
-	
-	if (len > 65535) {	
-		deb_error("count %zu exceeds max # of bytes allowed, "
-			"aborting write\n", len);
-		goto out_nomem;
-	}
 
 	deb_info("wants to write %zu bytes\n", len);
 
-	ret = -ENOMEM;
-	kbuf = kmalloc(len, GFP_KERNEL);
+	if (len > 65535) {
+		deb_error("count %zu exceeds max # of bytes allowed, "
+			"aborting write\n", len);
+		return -EINVAL;
+	}
 
-	if (!kbuf)
-		goto out_nomem;
+	if(len != sizeof(struct tegra_gpio_pt)) {
+		deb_error("Illegal data length %s\n", __func__);
+		return -ENOEXEC;
+	}
+
+	kbuf = kmalloc(len, GFP_KERNEL);
+	if ( !kbuf ) {
+	  deb_error("memory allocation failed");
+	  return -ENOMEM;
+	}
 
 	memset(kbuf, 0, len);
 
-	if(len != sizeof(struct tegra_gpio_pt));
-		deb_error("Illegal data length %s\n", __func__);
-
-	ret = -EFAULT;
 	// Copy header
 	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_pt))) {
-		deb_error("copy_from_user(1) failed\n");
-		goto out_cfu;
+		deb_error("copy_from_user failed\n");
+		kfree(kbuf);
+		return -ENXIO;
 	}
 
+	// debug still fine here
+	kbuf->label[GPIOCHIP_PTLABEL-1] = 0;	// terminate string at maxlenth
+
+	if ( strlen(kbuf->label) >= GPIOCHIP_PTLABEL ) {
+		printk(KERN_ERR "GPIO chardev label length is too big");
+		kfree(kbuf);
+		return -EINVAL;
+	}
+	
+	// copied user parameters
+	deb_debug( "parameters, Chip %s, Offset %d, Level %d", kbuf->label, kbuf->offset, kbuf->level);
+
+/* removed because we cant easily use the struct tegra_gpio_hosts points to
 	// check if host has initialised gpio chip
 	while (i <= MAX_CHIPS) {
-		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ){ i++; } // chip not found
+		if ( tegra_gpio_hosts[i] == NULL) { i = MAX_CHIPS; break; } // we do not have initalised tegra_gpio_hosts
+		// if (is_valid_user_ptr(tegra_gpio_hosts[i]->label, size))
+		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ) { i++; } // chip not found 
 		else { break; }
 	}
-	if ( i > 2) 
+
+	if ( i >= MAX_CHIPS)
 	{
 		deb_error("host device not initialised, can't do transfer!");
-		return -EFAULT;
+		kfree(kbuf);
+		return -ENODEV;
 	}
+*/
 
-	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
-	hexDump ("Chardev struct:",kbuf, len);
+//	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
+	hexDump ("Chardev struct", kbuf, len);
 
 	// make call to manipulate pins
 	switch (kbuf->signal) {
-		// only 's' for "set" is implemented at the moment
-		case 's':		
-			tegra186_gpio_set(tegra_gpio_hosts[i], kbuf->offset, kbuf->level);  		// only funtion implemented at the moment
+		/*
+		case 'C':	// chardev open
+			static int gpio_chrdev_open(struct inode *inode, struct file *file);
 		break;
-		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
+		case 'c':	// chardev close
+			static int gpio_chrdev_release(struct inode *inode, struct file *file);
 		break;
-	};
-
-	// no need to copy a response because there is none.
-	// if (copy_to_user((void *)buffer, kbuf, len)) {
-	//	deb_error("copy_to_user(1) failed\n");
-	//	goto out_notok;
-	// }
-
-
-	kfree(kbuf);
-	return len;
-// out_notok:
-out_nomem:
-	deb_error("memory allocation failed");
-out_cfu:
-	kfree(kbuf);
-	return -EINVAL;
-}
-
-/* pmx version of write in host-proxy driver commented out
-static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
-{
-	int ret = len;
-	struct tegra_gpio_op *kbuf = NULL;
-
-	if (len > 65535) {	
-		deb_error("count %zu exceeds max # of bytes allowed, "
-			"aborting write\n", len);
-		goto out_nomem;
-	}
-
-	deb_info("wants to write %zu bytes\n", len);
-
-	ret = -ENOMEM;
-	kbuf = kmalloc(len, GFP_KERNEL);
-
-	if (!kbuf)
-		goto out_nomem;
-
-	memset(kbuf, 0, len);
-
-	if(len != sizeof(struct tegra_gpio_op));
-		deb_error("Illegal data length %s\n", __func__);
-
-	ret = -EFAULT;
-// TODO
-// what format do we want to use?
-// guest does not include bank and reg	
-	// Copy header (header is / tegra_gpio_op / bank / reg / )
-	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_op))) {
-		deb_error("copy_from_user(1) failed\n");
-		goto out_cfu;
-	}
-
-	if(!tegra_pmx_host){
-		deb_error("host device not initialised, can't do transfer!");
-		return -EFAULT;
-	}
-
-	// kbuf->io_address = (void __iomem *)tegra_pmx_host->regs[kbuf->bank] + kbuf->reg;
-
-// todo: this will be very simple
-//	if(!check_if_allowed(kbuf)){
-//		goto out_cfu;
-//	}
-
-	// calls pmx_readl or pmx_writel depending on which ...
-	switch (kbuf->signal) {
-		case 'r':
-			kbuf->value = pmx_readl(tegra_pmx_host, kbuf->bank, kbuf->reg);
+		*/
+		case 'r':	// gpio request
+			ret = gpiod_request_by_name(kbuf->label);
+			// ret = gpiochip_generic_request_by_name(kbuf->label, kbuf->offset);
+			if (copy_to_user((void *)buffer, &ret, sizeof(ret))) {
+				deb_error("copy_to_user(1) failed\n");
+				kfree(kbuf);
+				return -EIO;
+			}
 		break;
-		case 'w':
-			pmx_writel(tegra_pmx_host, kbuf->value, kbuf->bank, kbuf->reg);
+		case 'd':	// get direction
+			ret = tegra186_gpio_get_direction_by_name(kbuf->label, kbuf->offset);
+			if (copy_to_user((void *)buffer, &ret, sizeof(ret))) {
+				deb_error("copy_to_user(2) failed\n");
+				kfree(kbuf);
+				return -EIO;
+			}
 		break;
-		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
+		case 'i':	// direction input
+			ret = tegra186_gpio_direction_input_by_name(kbuf->label, kbuf->offset);
+			if (copy_to_user((void *)buffer, &ret, sizeof(ret))) {
+				deb_error("copy_to_user(3) failed\n");
+				kfree(kbuf);
+				return -EIO;
+			}
+		break;
+		case 'o':	// gdirection output
+			ret = tegra186_gpio_direction_output_by_name(kbuf->label, kbuf->offset);
+			if (copy_to_user((void *)buffer, &ret, sizeof(ret))) {
+				deb_error("copy_to_user(3) failed\n");
+				kfree(kbuf);
+				return -EIO;
+			}
+		break;
+		case 's':
+			// tegra186_gpio_set(tegra_gpio_hosts[i], kbuf->offset, kbuf->level);  		// only function implemented at the moment
+			tegra186_gpio_set_by_name(kbuf->label, kbuf->offset, kbuf->level);  		// tegra186_gpio_set the only function implemented at the moment
+			// no need to copy a response
+		break;
+		case 'f':
+			gpiod_free_by_name(kbuf->label);
+			// no return value
+		break;
+		default:
+			deb_error("Illegal GPIO proxy signal type in %s\n", __func__);
+			kfree(kbuf);
+			return -EPERM;
 		break;
 	};
 
-	if (copy_to_user((void *)buffer, kbuf, len)) {
-		deb_error("copy_to_user(1) failed\n");
-		goto out_notok;
-	}
-
-
 	kfree(kbuf);
 	return len;
-out_notok:
-out_nomem:
-	deb_error("memory allocation failed");
-out_cfu:
-	kfree(kbuf);
-	return -EINVAL;
-
 }
-*/
 
 static const struct of_device_id gpio_host_proxy_ids[] = {
 	{ .compatible = "nvidia,gpio-host-proxy" },
