@@ -29,14 +29,24 @@ _Static_assert( (sizeof(struct tegra_gpio_op) % 8) == 0,
                "tegra_gpio_io is not aligned to 64 bits\n");
 
 enum tegra_gpio_pt_signal{
-	GPIO_SET = 's',     // set level
-	GPIO_GET = 'g',     // get level
-	GPIO_DIR = 'd',     // get direction
-	GPIO_SET_IN = 'i',  // set direction to input
-	GPIO_SET_OUT = 'o', // set direction to output
-	GPIO_CONFIG = 'c',  // set config
-	GPIO_REQ = 'r',		// generic request
-	GPIO_FREE = 'f'		// free
+	GPIO_CHARDEV_OPEN = '1',	// .open = gpio_chrdev_open
+	GPIO_CHARDEV_IOCTL ='2',	// .unlocked_ioctl = gpio_ioctl -- handles IO operation, get linehandle, set direction
+	GPIO_CHARDEV_POLL = '3',	// .poll = lineinfo_watch_poll
+	GPIO_CHARDEV_READ = '4',	// .read = lineinfo_watch_read
+	GPIO_CHARDEV_OWNER = '5',	// .owner = THIS_MODULE
+	GPIO_CHARDEV_SEEK = '6',	// .llseek = no_llseek
+	GPIO_CHARDEV_RELEASE = '7', // .release = gpio_chrdev_release
+	GPIO_SET_VALUE = 's',		// set level
+	GPIO_GET_VALUE = 'g',   	// get level
+	GPIO_DIR = 'd',     		// get direction
+	GPIO_SET_IN = 'i',  		// set direction to input
+	GPIO_SET_OUT = 'o', 		// set direction to output
+	GPIO_CONFIG = 'c',  		// set config
+	GPIO_REQ = 'r',				// generic request
+	GPIO_FREE = 'f',			// free
+	GPIO_TIMESTAMP_CTRL = 't',	// timestamp control
+	GPIO_TIMESTAMP_READ = 'T',	// timestamp read
+	GPIO_SUSPEND_CONF = 'S'		// suspend configure
 };
 
 _Static_assert(sizeof(enum tegra_gpio_pt_signal) == 4,
@@ -49,6 +59,8 @@ struct tegra_gpio_pt {
 	char label[GPIOCHIP_PTLABEL];		// label of gpio chip
 	unsigned int offset;				// register offset
 	int level;			        		// pin level to be set
+	u32 cmd;							// gpio_ioctl command
+	u64 arg;							// gpio_ioctl argument (this is interpreted as a pointer)
 };
 
 #define STRINGIFY(x) #x

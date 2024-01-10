@@ -34,12 +34,11 @@ MODULE_VERSION("0.0");
 #if GPIO_GUEST_VERBOSE
 #define deb_info(...)     printk(KERN_INFO DEVICE_NAME ": "__VA_ARGS__)
 #define deb_debug(...)    printk(KERN_DEBUG DEVICE_NAME ": "__VA_ARGS__)
+
 #else
 #define deb_info(...)
 #define deb_debug(...)
 #endif
-
-#define deb_error(...)	printk(KERN_ERR DEVICE_NAME ": "__VA_ARGS__)
 
 #define GPIO_VERBOSE
 
@@ -105,14 +104,14 @@ int tegra_gpio_guest_init(void)
 	deb_info("gpio_vpa: 0x%llX", gpio_vpa);
 
 	if(!gpio_vpa){
-		deb_error("Failed, gpio_vpa not defined\n");
+		pr_err("Failed, gpio_vpa not defined\n");
 	}
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
 	if (major_number < 0)
 	{
-		deb_error("could not register number.\n");
+		pr_err("could not register number.\n");
 		return major_number;
 	}
 	deb_info("registered correctly with major number %d\n", major_number);
@@ -122,7 +121,7 @@ int tegra_gpio_guest_init(void)
 	if (IS_ERR(gpio_guest_proxy_class))
 	{ // Check for error and clean up if there is
 		unregister_chrdev(major_number, DEVICE_NAME);
-		deb_error("Failed to register device class\n");
+		pr_err("Failed to register device class\n");
 		return PTR_ERR(gpio_guest_proxy_class); // Correct way to return an error on a pointer
 	}
 	deb_info("device class registered correctly\n");
@@ -133,7 +132,7 @@ int tegra_gpio_guest_init(void)
 	{								 // Clean up if there is an error
 		class_destroy(gpio_guest_proxy_class); 
 		unregister_chrdev(major_number, DEVICE_NAME);
-		deb_error("Failed to create the device\n");
+		pr_err("Failed to create the device\n");
 		return PTR_ERR(gpio_guest_proxy_device);
 	}
 	deb_info("device class created correctly\n"); // Made it! device was initialized
@@ -145,7 +144,7 @@ int tegra_gpio_guest_init(void)
 	mem_iova = ioremap(gpio_vpa, sizeof(struct tegra_gpio_pt));
 
 	if (!mem_iova) {
-		deb_error("ioremap failed\n");
+		pr_err("ioremap failed\n");
 		return -ENOMEM;
 	}
 
@@ -245,19 +244,19 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	deb_info("wants to write %zu bytes\n", len);
 	
 	if (len > 65535) {	
-		deb_error("count %zu exceeds max # of bytes allowed, "
+		pr_err("count %zu exceeds max # of bytes allowed, "
 			"aborting write\n", len);
 		return -EINVAL;
 	}
 
 	if(len != sizeof(struct tegra_gpio_pt)) {
-		deb_error("Illegal data length %s\n", __func__);
+		pr_err("Illegal data length %s\n", __func__);
 		return -EFAULT;
 	}
 
 	kbuf = kmalloc(len, GFP_KERNEL);
 	if ( !kbuf ) {
-	  deb_error("memory allocation failed");
+	  pr_err("memory allocation failed");
 	  return -ENOMEM;
 	}
 
@@ -265,16 +264,16 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	// Copy header
 	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_pt))) {
-		deb_error("copy_from_user failed\n");
+		pr_err("copy_from_user failed\n");
 	  kfree(kbuf);
 	  return -EINVAL;
 	}
 
 	// copied user parameters
-	printk(KERN_DEBUG "GPIO chardev parameters: Chip %s, Offset %d, Level %d", kbuf->label, kbuf->offset, kbuf->level);
+	deb_debug("GPIO chardev parameters: Chip %s, Offset %d, Level %d", kbuf->label, kbuf->offset, kbuf->level);
 	
 	if ( strlen(kbuf->label) >= GPIOCHIP_PTLABEL ) {
-	  printk(KERN_ERR "GPIO chardev label length is too big");
+	  pr_err("GPIO chardev label length is too big");
 	  kfree(kbuf);
 	  return -EINVAL;
 	}
@@ -289,12 +288,12 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	if ( i >= MAX_CHIPS) 
 	{
-		deb_error("host device not initialised, can't do transfer!");
+		pr_err("host device not initialised, can't do transfer!");
 		kfree(kbuf);
 		return -EFAULT;
 	}
 
-	deb_info( "Using GPIO chip %s", tegra_gpio_hosts[i]->label);
+	deb_info("Using GPIO chip %s", tegra_gpio_hosts[i]->label);
 	// hexDump ("Chardev struct:",kbuf, len);  // hexDump is defined in gpio-host-proxy.c
 
 	// make call to manipulate pins
@@ -303,13 +302,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		case 's':		
 			tegra186_gpio_set(tegra_gpio_hosts[i], kbuf->offset, kbuf->level);  		// only funtion implemented at the moment
 		break;
-		default: deb_error("Illegal proxy readl/writel signal type in %s\n", __func__);
+		default: pr_err("Illegal proxy readl/writel signal type in %s\n", __func__);
 		break;
 	};
 
 	// no need to copy a response because there is none.
 	// if (copy_to_user((void *)buffer, kbuf, len)) {
-	//	deb_error("copy_to_user(1) failed\n");
+	//	pr_err("copy_to_user(1) failed\n");
 	//	goto out_notok;
 	// }
 
