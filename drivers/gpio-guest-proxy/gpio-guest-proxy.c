@@ -45,8 +45,8 @@ MODULE_VERSION("0.0");
 static volatile void __iomem  *mem_iova = NULL;
 
 // extern struct tegra_pmx *tegra_pmx_host;
-#define MAX_CHIPS 2		// note this definition must match extern definintion (on NVIDIA Jetson AGX Orin it is 2)
-extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration is in driver.h
+// #define MAX_CHIPS 2		// note this definition must match extern definintion (on NVIDIA Jetson AGX Orin it is 2)
+// extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration is in driver.h
 
 // extern u32 pmx_readl(struct tegra_pmx *, u32, u32);
 // extern void pmx_writel(struct tegra_pmx *, u32, u32, u32);
@@ -55,6 +55,9 @@ extern struct gpio_chip *tegra_gpio_hosts[MAX_CHIPS];			// gpio_chip declaration
 
 // static inline u32 my_pmx_readl(void __iomem *);
 // static inline void my_pmx_writel(u32, void __iomem *);
+
+extern struct gpio_chip *find_chip_by_name(const char *);	// this is irrelevant for guest proxy?
+
 extern void (*tegra186_gpio_set_redirect)(const char *, unsigned int, int);
 void my_tegra186_gpio_set(const char *, unsigned int, int);
 extern void tegra186_gpio_set(struct gpio_chip *, unsigned int, int);
@@ -215,8 +218,8 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
 	struct tegra_gpio_pt io_data = {
 	.signal = 's',       // 's' stands for "set"
 	// .label = memcpy...gpio_label,
-	.offset = offset,
-	.level = level
+	.p1.offset = offset,
+	.p2.level = level
 	};
 	
 	deb_info("%s\n", __func__);
@@ -238,8 +241,15 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
-	int i = 0;
+	// tint i = 0;
+	unsigned int ret;
+	// unsigned long int ret_l;
 	struct tegra_gpio_pt *kbuf = NULL;
+	// static struct file *file;
+	// static struct inode *inode = NULL;
+	struct gpio_chip *chip;
+	// unsigned int gpio_number;
+	char *return_buffer = (char *)buffer;
 
 	deb_info("wants to write %zu bytes\n", len);
 	
@@ -270,15 +280,16 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	// copied user parameters
-	deb_debug("GPIO chardev parameters: Chip %s, Offset %d, Level %d", kbuf->label, kbuf->offset, kbuf->level);
+	deb_debug("GPIO chardev parameters: Chip %s, Offset %d, Level %d", kbuf->label, kbuf->p1.offset, kbuf->p2.level);
 	
-	if ( strlen(kbuf->label) >= GPIOCHIP_PTLABEL ) {
-	  pr_err("GPIO chardev label length is too big");
+	if ( strlen(kbuf->label) >= GPIOCHIP_LABEL ) {
+	  pr_err("GPIO chardev label length is too big, %zu", strlen(kbuf->label));
 	  kfree(kbuf);
 	  return -EINVAL;
 	}
 
 	// check if host has initialised gpio chip
+	/* we do not need the global tegra_gpio_hosts variable
 	while (i <= MAX_CHIPS) {
 		if ( strcmp(kbuf->label, tegra_gpio_hosts[i]->label) ) {
 		i++; // chip not found
@@ -292,17 +303,80 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		kfree(kbuf);
 		return -EFAULT;
 	}
+	*/
 
-	deb_info("Using GPIO chip %s", tegra_gpio_hosts[i]->label);
+	deb_info("Using GPIO chip %s", kbuf->label);
 	// hexDump ("Chardev struct:",kbuf, len);  // hexDump is defined in gpio-host-proxy.c
 
-	// make call to manipulate pins
-	switch (kbuf->signal) {
-		// only 's' for "set" is implemented at the moment
-		case 's':		
-			tegra186_gpio_set(tegra_gpio_hosts[i], kbuf->offset, kbuf->level);  		// only funtion implemented at the moment
+	// make call to gpio
+	switch (kbuf->signal) {	
+		// version using gpio_chip from tegra186_gpio_probe
+		case 'r':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->request(chip, kbuf->p1.offset);
+			goto retval;
 		break;
-		default: pr_err("Illegal proxy readl/writel signal type in %s\n", __func__);
+		case 'f':
+			chip = find_chip_by_name(kbuf->label);
+			chip->free(chip, kbuf->p1.offset);
+		break;
+		case 'd':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->get_direction(chip, kbuf->p1.offset);
+			goto retval;
+		break;
+		case 'i':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->direction_input(chip, kbuf->p1.offset);
+			goto retval;
+		break;
+		case 'o':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->direction_output(chip, kbuf->p1.offset, kbuf->p2.level);
+			goto retval;
+		break;
+		case 'g':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->get(chip, kbuf->p1.offset);
+			goto retval;
+		break;
+		case 's':
+			chip = find_chip_by_name(kbuf->label);
+			chip->set(chip, kbuf->p1.offset, kbuf->p2.level);
+		break;
+		case 'c':
+			chip = find_chip_by_name(kbuf->label);
+			// static int tegra186_gpio_set_config(struct gpio_chip *chip, unsigned int offset, unsigned long config)
+			chip->set_config(chip, kbuf->p1.offset, kbuf->p2.config); // arg mapped to unsigned long config
+		break;
+		case 't':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->timestamp_control(chip, kbuf->p1.offset, kbuf->p2.level);	// mapping level onto enable
+			goto retval;
+		break;
+		case 'T':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->timestamp_read(chip, kbuf->p1.offset, (u64 *)return_buffer);	// timestamp is u64, return value as pointer
+			// timestamp_read returns value in return_buffer
+		break;
+		case 'S':
+			chip = find_chip_by_name(kbuf->label);
+			ret = chip->suspend_configure(chip, kbuf->p1.offset, kbuf->p2.dflags);	// level is int same sizeof as enum gpiod_flags dflags
+			goto retval;
+		break;		
+		/* 
+		 * linehandle_create	-- when userspace requests output (called by gpio_ioctl) -- bypasses the chardev
+		 * linehandle_ioctl		-- linehandle_ioctl when userspace does actual io (toggles pin)
+		 * 						cmd:
+		 * 							GPIOHANDLE_GET_LINE_VALUES_IOCTL,
+		 * 							GPIOHANDLE_SET_LINE_VALUES_IOCTL,
+		 * 							GPIOHANDLE_SET_CONFIG_IOCTL
+		 * 						arg: user input or output
+		 */
+		default:
+			pr_err("GPIO %s, Illegal proxy signal type\n", __func__);
+			kfree(kbuf);
+			return -EPERM;
 		break;
 	};
 
@@ -312,7 +386,27 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	//	goto out_notok;
 	// }
 
+	goto end;
 
+	/*
+	retlong:
+	if ( copy_to_user(return_buffer, &ret_l, sizeof(ret_l)) ) {
+		pr_err("GPIO %s, copying int user return value failed\n", __func__);
+		kfree(kbuf);
+		return -EFAULT;
+	}
+	goto end;
+	*/
+	
+	retval:
+	if ( copy_to_user(return_buffer, &ret, sizeof(ret)) ) {
+		pr_err("GPIO %s, copying long int user return value failed\n", __func__);
+		kfree(kbuf);
+		return -EFAULT;
+	}
+	goto end;
+	
+	end:
 	kfree(kbuf);
 	return len;
 }
