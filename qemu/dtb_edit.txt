@@ -1,4 +1,0 @@
-sudo -E wqqemu-system-aarch64 -machine virt,accel=kvm,dumpdtb=virt-qemu-8.1.0.dtb -cpu host
-dtc -I dtb -O dts virt-qemu-8.1.0.dtb > virt-qemu-8.1.0.dts
-# copy and edit virt-qemu-8.1.0.dts ---> gpio.dts
-dtc -O dtb -I dts gpio.dts >> gpio.dtb
