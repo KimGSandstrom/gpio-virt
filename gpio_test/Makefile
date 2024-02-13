@@ -2,7 +2,7 @@
 OUTPUT_LIBGPIOD = gpio
 
 # List of source files
-SRCS_LIBGPIOD = libgpiod.c
+SRCS_LIBGPIOD = gpio.c
 
 # Compiler and compiler flags
 CC = gcc

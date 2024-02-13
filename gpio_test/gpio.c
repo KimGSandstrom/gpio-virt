@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <gpiod.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 void user_input(char *prompt) {
   int c;
