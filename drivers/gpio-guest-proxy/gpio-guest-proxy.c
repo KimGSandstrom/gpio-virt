@@ -27,9 +27,8 @@ MODULE_AUTHOR("Kim Sandstrom");
 MODULE_DESCRIPTION("NVidia GPIO Guest Proxy Kernel Module"); 
 MODULE_VERSION("0.0");				 
 
-
-
-#define GPIO_GUEST_VERBOSE	1
+#define GPIO_VERBOSE
+#define GPIO_GUEST_VERBOSE
 
 #if GPIO_GUEST_VERBOSE
 #define deb_info(fmt, args...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##args)
@@ -40,7 +39,6 @@ MODULE_VERSION("0.0");
 #define deb_debug(fmt, args...)
 #endif
 
-#define GPIO_VERBOSE
 
 static volatile void __iomem  *mem_iova = NULL;
 

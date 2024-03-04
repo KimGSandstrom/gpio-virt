@@ -29,7 +29,7 @@ MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module");	///< The description
 MODULE_VERSION("0.0");						///< A version number to inform users
 
 #define GPIO_VERBOSE
-#define GPIO_HOST_VERBOSE    1
+#define GPIO_HOST_VERBOSE
 
 #if GPIO_HOST_VERBOSE
 #define deb_info(fmt, args...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##args)
