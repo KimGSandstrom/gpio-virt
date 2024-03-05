@@ -32,11 +32,11 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 #define GPIO_HOST_VERBOSE
 
 #ifdef GPIO_HOST_VERBOSE
-#define deb_info(fmt, args...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##args)
-#define deb_debug(fmt, args...)    printk(KERN_DEBUG DEVICE_NAME ": " fmt, ##args)
+#define deb_info(fmt, ...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##__VA_ARGS__)
+#define deb_debug(fmt, ...)    printk(KERN_DEBUG DEVICE_NAME ": " fmt, ##__VA_ARGS__)
 #else
-#define deb_info(fmt, args...)
-#define deb_debug(fmt, args...)
+#define deb_info(fmt, ...)
+#define deb_debug(fmt, ...)
 #endif
 
 // extern struct tegra_pmx *tegra_pmx_host;
@@ -90,7 +90,7 @@ static struct file_operations fops =
 // GPIO allowed resources structure
 // static struct gpio_allowed_res gpio_ares;
 
-#if GPIO_HOST_VERBOSE
+#ifdef GPIO_HOST_VERBOSE
 // Usage:
 //     hexDump(desc, addr, len, perLine);
 //         desc:    if non-NULL, printed as a description before hex dump.
@@ -184,7 +184,7 @@ void static hexDump (
 static int gpio_host_proxy_probe(struct platform_device *pdev)
 {
 //	int i;
-
+  printk(KERN_INFO "foolproof printk, installing module gpio-host-proxy in %s", __func__);
 	deb_info("%s, installing module.", __func__);
 
 // *********************
@@ -253,8 +253,6 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 
 	return 0;
 }
-
-
 
 /*
  * Removes module, sends appropriate message to kernel
@@ -617,10 +615,36 @@ static const struct of_device_id gpio_host_proxy_ids[] = {
 
 static struct platform_driver gpio_host_proxy_driver = {
 	.driver = {
-		.name = "gpio_host_proxy",
-		.of_match_table = gpio_host_proxy_ids,
+    .name = "gpio_host_proxy",
+    .owner = THIS_MODULE,
+    .of_match_table = gpio_host_proxy_ids,
 	},
 	.probe = gpio_host_proxy_probe,
 	.remove = gpio_host_proxy_remove,
 };
-builtin_platform_driver(gpio_host_proxy_driver);
+// builtin_platform_driver(gpio_host_proxy_driver);
+
+static int __init gpio_host_proxy_init(void)
+{
+    int ret = 0;
+
+    ret = platform_driver_register(&gpio_host_proxy_driver);
+    if (ret != 0) {
+        // printk(KERN_ERR "Error %d registering gpio host proxy driver\n", ret);
+        pr_err("GPIO %s, Error %d registering gpio host proxy driver\n", __func__, ret);
+    } else {
+        deb_info("GPIO gpio host proxy driver registered successfully\n");
+    }
+
+    return ret;
+}
+
+static void __exit gpio_host_proxy_exit(void)
+{
+    platform_driver_unregister(&gpio_host_proxy_driver);
+   // printk(KERN_INFO "gpio host proxy driver unregistered\n");
+    deb_info("GPIO gpio host proxy driver unregistered\n");
+}
+
+module_init(gpio_host_proxy_init);
+module_exit(gpio_host_proxy_exit);

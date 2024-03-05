@@ -31,12 +31,12 @@ MODULE_VERSION("0.0");
 #define GPIO_GUEST_VERBOSE
 
 #ifdef GPIO_GUEST_VERBOSE
-#define deb_info(fmt, args...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##args)
-#define deb_debug(fmt, args...)    printk(KERN_DEBUG DEVICE_NAME ": " fmt, ##args)
+#define deb_info(fmt, ...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##__VA_ARGS__)
+#define deb_debug(fmt, ...)    printk(KERN_DEBUG DEVICE_NAME ": " fmt, ##__VA_ARGS__)
 
 #else
-#define deb_info(fmt, args...)
-#define deb_debug(fmt, args...)
+#define deb_info(fmt, ...)
+#define deb_debug(fmt, ...)
 #endif
 
 
