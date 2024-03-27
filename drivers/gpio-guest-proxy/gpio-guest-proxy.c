@@ -20,23 +20,28 @@
 #include <linux/gpio/driver.h>
 
 #define DEVICE_NAME "gpio-guest" // Device name.
-#define CLASS_NAME "char"	  
+#define CLASS_NAME "char"
 
-MODULE_LICENSE("GPL");						 
-MODULE_AUTHOR("Kim Sandstrom");					 
-MODULE_DESCRIPTION("NVidia GPIO Guest Proxy Kernel Module"); 
-MODULE_VERSION("0.0");				 
+MODULE_LICENSE("GPL");
+MODULE_AUTHOR("Kim Sandstrom");
+MODULE_DESCRIPTION("NVidia GPIO Guest Proxy Kernel Module");
+MODULE_VERSION("0.0");
 
-#define GPIO_VERBOSE
-#define GPIO_GUEST_VERBOSE
+#define GPIO_DEBUG
+#define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
 
-#ifdef GPIO_GUEST_VERBOSE
-#define deb_info(fmt, ...)     printk(KERN_INFO DEVICE_NAME ": " fmt, ##__VA_ARGS__)
-#define deb_debug(fmt, ...)    printk(KERN_DEBUG DEVICE_NAME ": " fmt, ##__VA_ARGS__)
-
+#ifdef GPIO_DEBUG
+  #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\'" fmt, __func__, __FILE__, ##__VA_ARGS__)
+  #define deb_debug(fmt, ...)    printk(KERN_DEBUG "GPIO func \'%s\' in file \'%s\'" fmt, __func__ , __FILE__, ##__VA_ARGS__)
 #else
-#define deb_info(fmt, ...)
-#define deb_debug(fmt, ...)
+  #define deb_info(fmt, ...)
+  #define deb_debug(fmt, ...)
+#endif
+
+#ifdef GPIO_DEBUG_VERBOSE
+  #define deb_verbose           deb_debug
+#else
+  #define deb_verbose(fmt, ...)
 #endif
 
 
@@ -65,7 +70,7 @@ extern uint64_t gpio_vpa;
 
 /* functions redirected to guest-proxy from gpio-tegra186.c
  * from setup of gpio_chip in tegra186_gpio_probe
- */ 
+ */
 
 // TODO write proper bodies
 
@@ -154,31 +159,31 @@ EXPORT_SYMBOL_GPL(tegra186_gpio_add_pin_ranges_redirect);
 
 /* copied here as an implemetation template
 int my_tegra_bpmp_transfer(struct tegra_bpmp *bpmp, struct tegra_bpmp_message *msg)
-{   
+{
 
 	unsigned char io_buffer[MEM_SIZE];
-	deb_info("%s\n", __func__);
+	deb_info("%s");
 
 	memset(io_buffer, 0, sizeof(io_buffer));
-	
+
     if (msg->tx.size >= MESSAGE_SIZE)
         return -EINVAL;
 
 	// Copy msg, tx data and rx data to a single io_buffer
     memcpy(&io_buffer[TX_BUF], msg->tx.data, msg->tx.size);
 	memcpy(&io_buffer[TX_SIZ], &msg->tx.size, sizeof(msg->tx.size));
-	
+
 	memcpy(&io_buffer[RX_BUF], msg->rx.data, msg->rx.size);
 	memcpy(&io_buffer[RX_SIZ], &msg->rx.size, sizeof(msg->rx.size));
 
 	memcpy(&io_buffer[MRQ], &msg->mrq, sizeof(msg->mrq));
-	
+
 
     hexDump("msg", &msg, sizeof(struct tegra_bpmp_message));
-    deb_info("msg.tx.data: %p\n", msg->tx.data);
+    deb_info("msg.tx.data: %p", msg->tx.data);
     hexDump("msg.tx.data", msg->tx.data, msg->tx.size);
-	deb_info("msg->rx.size: %ld\n", msg->rx.size);
-	
+	deb_info("msg->rx.size: %ld", msg->rx.size);
+
 	// Execute the request by coping the io_buffer
 	memcpy_toio(mem_iova, io_buffer, MEM_SIZE);
 
@@ -191,10 +196,10 @@ int my_tegra_bpmp_transfer(struct tegra_bpmp *bpmp, struct tegra_bpmp_message *m
 
 	memcpy(&msg->rx.size, &io_buffer[RX_SIZ], sizeof(msg->rx.size));
 	memcpy(msg->rx.data, &io_buffer[RX_BUF], msg->rx.size);
-	
+
 	memcpy(&msg->rx.ret, &io_buffer[RET_COD], sizeof(msg->rx.ret));
 
-	deb_info("%s, END ret: %d\n", __func__, msg->rx.ret);
+	deb_info("%s, END ret: %d", msg->rx.ret);
 
     return msg->rx.ret;
 }
@@ -233,56 +238,55 @@ static struct file_operations fops =
  */
 int tegra_gpio_guest_init(struct gpio_chip *gpio)
 {
-	deb_info("%s, installing module.", __func__);
+	deb_info("installing module.");
 
-	deb_info("gpio_vpa: 0x%llX", gpio_vpa);
+	deb_info("gpio_vpa: 0x%llx", gpio_vpa);
 
 	if(!gpio_vpa){
-		pr_err("Failed, gpio_vpa not defined\n");
+		pr_err("Failed, gpio_vpa not defined");
 	}
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
 	if (major_number < 0)
 	{
-		pr_err("could not register number.\n");
+		pr_err("could not register number.");
 		return major_number;
 	}
-	deb_info("registered correctly with major number %d\n", major_number);
+	deb_info("registered correctly with major number %d", major_number);
 
 	// Register the device class
 	gpio_guest_proxy_class = class_create(THIS_MODULE, CLASS_NAME);
 	if (IS_ERR(gpio_guest_proxy_class))
 	{ // Check for error and clean up if there is
 		unregister_chrdev(major_number, DEVICE_NAME);
-		pr_err("Failed to register device class\n");
+		pr_err("Failed to register device class");
 		return PTR_ERR(gpio_guest_proxy_class); // Correct way to return an error on a pointer
 	}
-	deb_info("device class registered correctly\n");
+	deb_info("device class registered correctly");
 
 	// Register the char device driver
 	gpio_guest_proxy_device = device_create(gpio_guest_proxy_class, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
 	if (IS_ERR(gpio_guest_proxy_device))
 	{								 // Clean up if there is an error
-		class_destroy(gpio_guest_proxy_class); 
+		class_destroy(gpio_guest_proxy_class);
 		unregister_chrdev(major_number, DEVICE_NAME);
-		pr_err("Failed to create the device\n");
+		pr_err("Failed to create the device");
 		return PTR_ERR(gpio_guest_proxy_device);
 	}
-	deb_info("device class created correctly\n"); // Made it! device was initialized
-
+	deb_info("device class created correctly"); // Made it! device was initialized
 	// map iomem used/provided by Qemu
 	// gpio_vpa is fake-physical memory
-	// value of gpio_vpa defines address in io-space, 
+	// value of gpio_vpa defines address in io-space,
 	// second parameter gives the size of the memory range
 	mem_iova = ioremap(gpio_vpa, sizeof(struct tegra_gpio_pt));
 
 	if (!mem_iova) {
-		pr_err("ioremap failed\n");
+		pr_err("ioremap failed");
 		return -ENOMEM;
 	}
 
-	deb_info("gpio_vpa: 0x%llX, mem_iova: %p\n", gpio_vpa, mem_iova);
+	deb_info("gpio_vpa: 0x%llX, mem_iova: %p", gpio_vpa, mem_iova);
 
 	gpio->request = gpiochip_generic_request_redirect;
 	gpio->free = gpiochip_generic_free_redirect;
@@ -307,7 +311,7 @@ EXPORT_SYMBOL(tegra_gpio_guest_init);
  */
 void tegra_gpio_guest_cleanup(void)
 {
-	deb_info("removing module.\n");
+	deb_info("removing module.");
 
 	// unmap iomem
 	iounmap((void __iomem*)gpio_vpa);
@@ -315,20 +319,19 @@ void tegra_gpio_guest_cleanup(void)
 	// pmx_writel_redirect = NULL;	// unhook function
 	// pmx_readl_redirect = NULL;	// unhook function
 	// tegra186_gpio_set_redirect = NULL;	// unhook function
- 
-  // TODO unhook all used functions
 
+  // TODO unhook all used functions
 
 	device_destroy(gpio_guest_proxy_class, MKDEV(major_number, 0)); // remove the device
 	class_unregister(gpio_guest_proxy_class);						  // unregister the device class
 	class_destroy(gpio_guest_proxy_class);						  // remove the device class
 	unregister_chrdev(major_number, DEVICE_NAME);		  // unregister the major number
-	deb_info("Goodbye from the LKM!\n");
+	deb_info("Goodbye from the LKM!");
 	unregister_chrdev(major_number, DEVICE_NAME);
 	return;
 }
 
-/* control functons of the drivers char device 
+/* control functons of the drivers char device
  */
 
 /*
@@ -336,7 +339,7 @@ void tegra_gpio_guest_cleanup(void)
  */
 static int open(struct inode *inodep, struct file *filep)
 {
-	deb_info("device opened.\n");
+	deb_info("device opened.");
 	gpio_outloud = 1;
 	return 0;
 }
@@ -346,7 +349,7 @@ static int open(struct inode *inodep, struct file *filep)
  */
 static int close(struct inode *inodep, struct file *filep)
 {
-	deb_info("device closed.\n");
+	deb_info("device closed.");
 	gpio_outloud = 0;
 	return 0;
 }
@@ -368,10 +371,10 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
 	.offset = offset,
 	.level = level
 	};
-	
-	deb_info("%s\n", __func__);
-	
-	// copy the label of the gpiochip 
+
+	deb_verbose("Redirected");
+
+	// copy the label of the gpiochip
 	// At this moment we might not pass through both chips -- thus this is maybe redundant
 	// memcpy(io_data.label, gpio_label, strlen(gpio_label)+1);
   if (strcmp(gpio_label, TEGRA_GPIO_LABEL) == 0) {
@@ -379,16 +382,16 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
   }
   else if (strcmp(gpio_label, TEGRA_GPIO_AON_LABEL) == 0) {
     io_data.chipnum = 1;
-  } 
-  else {
-		pr_err("setting label failed\n");
   }
-	
+  else {
+		pr_err("setting label failed");
+  }
+
 	// Execute the request by copying to qemu-io-memory for chardev passthrough
   // we will truncate tegra186_gpio_pt because setended parameters are not used
   // TODO tidy up the implemetation of extended parameters or completely remove them
 	memcpy_toio(mem_iova, &io_data, sizeof(io_data)/2);
-	
+
 	// read response (no response)
 	// memcpy_fromio(io_data.label, mem_iova, sizeof(struct tegra186_gpio_pt));
 }
@@ -400,31 +403,31 @@ void my_tegra186_gpio_set(const char *gpio_label, unsigned int offset, int level
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	// tint i = 0;
-  // 	unsigned int ret;
-	// unsigned long int ret_l;
-	struct tegra_gpio_pt *kbuf = NULL;
+  unsigned int ret;
+	unsigned long int ret_l;
+	// struct tegra_gpio_pt *kbuf = NULL;
 	// static struct file *file;
 	// static struct inode *inode = NULL;
   // 	struct gpio_chip *chip;
 	// unsigned int gpio_number;
-  //	char *return_buffer = (char *)buffer;
+  char *return_buffer = (char *)buffer;
+  char *read_buffer = (char *)buffer;
 
   // const char *chiplabel[2] = {TEGRA_GPIO_LABEL,TEGRA_GPIO_AON_LABEL};
 
+	deb_info("wants to write %zu bytes", len);
 
-	deb_info("wants to write %zu bytes\n", len);
-	
-	if (len > 65535) {	
-		pr_err("count %zu exceeds max # of bytes allowed, "
-			"aborting write\n", len);
+	if (len > 65535) {
+		pr_err("count %zu exceeds max # of bytes allowed, aborting write", len);
 		return -EINVAL;
 	}
 
-	if(len != sizeof(struct tegra_gpio_pt)) {
-		pr_err("Illegal data length %s\n", __func__);
+	if(len != sizeof(struct tegra_gpio_pt) || len != sizeof(tegra_gpio_pt_extended) ) {
+		pr_err("Illegal data length %ld", len);
 		return -EFAULT;
 	}
 
+  /*
 	kbuf = kmalloc(len, GFP_KERNEL);
 	if ( !kbuf ) {
 	  pr_err("memory allocation failed");
@@ -434,36 +437,41 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	memset(kbuf, 0, len);
 
 	// Copy header
-	if (copy_from_user(kbuf, buffer, sizeof(struct tegra_gpio_pt))) {
-		pr_err("copy_from_user failed\n");
+	if (copy_from_user(kbuf, read_buffer, sizeof(struct tegra_gpio_pt))) {
+		pr_err("copy_from_user failed");
 	  kfree(kbuf);
-	  return -EINVAL;
+	  return -ENOMEM;
 	}
 
 	// copied user parameters
 	deb_debug("GPIO chardev parameters: Chip %d, Offset %d, Level %d", kbuf->chipnum, kbuf->offset, kbuf->level);
-	
-	goto end;
+	*/
 
-	/*
+  // send data "as is" to host
+	memcpy_toio(mem_iova, read_buffer, len);
+  // TODO handle return messages from host
+
+	goto end;
+  goto retlong;
+  goto retval;
+
 	retlong:
 	if ( copy_to_user(return_buffer, &ret_l, sizeof(ret_l)) ) {
-		pr_err("GPIO %s, copying int user return value failed\n", __func__);
-		kfree(kbuf);
+		pr_err("GPIO, copying int user return value failed");
+		//kfree(kbuf);
 		return -EFAULT;
 	}
 	goto end;
-	
+
 	retval:
 	if ( copy_to_user(return_buffer, &ret, sizeof(ret)) ) {
-		pr_err("GPIO %s, copying long int user return value failed\n", __func__);
-		kfree(kbuf);
+		pr_err("GPIO, copying long int user return value failed");
+		//kfree(kbuf);
 		return -EFAULT;
 	}
 	goto end;
-	*/
-	
+
 	end:
-	kfree(kbuf);
+	//kfree(kbuf);
 	return len;
 }

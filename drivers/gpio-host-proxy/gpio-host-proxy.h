@@ -25,14 +25,15 @@
 #define GPIO_REQ             'r'   // generic request
 #define GPIO_FREE            'f'   // free
 
-#define GPIO_TIMESTAMP_CTRL  't'   // timestamp control
-#define GPIO_TIMESTAMP_READ  'T'   // timestamp read
+#define GPIO_TIMESTAMP_CTRL  'C'   // timestamp control
+#define GPIO_TIMESTAMP_READ  'R'   // timestamp read
 #define GPIO_SUSPEND_CONF    'S'   // suspend configure
+#define GPIO_ADD_PINRANGES   'P'   // add_pin_ranges
 
 #define TEGRA_GPIO_CHIP       0    // tegra-gpio gpio_main_chip
 #define TEGRA_GPIO_AON_CHIP   1    // tegra-gpio-aon gpio_aon_chip
-#define TEGRA_GPIO_LABEL      "tegra-gpio\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00"        // gpio_main_chip --padded to 20 bytes
-#define TEGRA_GPIO_AON_LABEL  "tegra-gpio-aon\x00\x00\x00\x00\x00\x00"                    // gpio_aon_chip  --padded to 20 bytes
+#define TEGRA_GPIO_LABEL      "tegra234-gpio\x00\x00\x00\x00\x00\x00\x00"  // gpio_main_chip / gpiochip0 --padded to 20 bytes
+#define TEGRA_GPIO_AON_LABEL  "tegra234-gpio-aon\x00\x00\x00"              // gpio_aon_chip  / gpiochip1 --padded to 20 bytes
 #define LABEL_SIZE            20
 
 // struct __attribute__((packed)) tegra_gpio_pt {
@@ -40,7 +41,7 @@ struct tegra_gpio_pt {
   unsigned char signal;       // defines operation
   unsigned char chipnum;      // number of gpio chip (gpiochip0 or gpiochip1)
   unsigned char level;        // padding to reach 8 byte word alignment
-  unsigned char offset;       // address offset for gpio pin 
+  unsigned char offset;       // address offset for gpio pin
   u32 cmd;                    // gpio_ioctl command
   // union extended p2;          // parameters
 };
