@@ -620,6 +620,8 @@ static struct platform_driver gpio_host_proxy_driver = {
 };
 // builtin_platform_driver(gpio_host_proxy_driver);
 
+
+// TODO do not initialise host proxy driver in guest.
 static int __init gpio_host_proxy_init(void)
 {
     int ret = 0;
