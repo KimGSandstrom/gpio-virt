@@ -33,8 +33,8 @@ MODULE_VERSION("0.0\n");						///< A version number to inform users
 #define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
 
 #ifdef GPIO_DEBUG
-  #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\'" fmt, __func__, __FILE__, ##__VA_ARGS__)
-  #define deb_debug(fmt, ...)    printk(KERN_DEBUG "GPIO func \'%s\' in file \'%s\'" fmt, __func__, __FILE__, ##__VA_ARGS__)
+  #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__, __FILE__, ##__VA_ARGS__)
+  #define deb_debug(fmt, ...)    printk(KERN_DEBUG "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__, __FILE__, ##__VA_ARGS__)
 #else
   #define deb_info(fmt, ...)
   #define deb_debug(fmt, ...)
@@ -84,12 +84,14 @@ static struct file_operations fops =
 
 #ifdef GPIO_DEBUG_VERBOSE
   // Usage:
-  //   hexDump(desc, addr, len, perLine);
+  //   hexDump(devName, desc, addr, len, perLine);
+  //     devName  name of device being debugged, for reference
   //     desc:    if non-NULL, printed as a description before hex dump.
   //     addr:    the address to start dumping from.
   //     len:     the number of bytes to dump.
   //     perLine: number of bytes on each output line.
   void hexDump (
+    const char * deviceName,
     const char * desc,
     const void * addr,
     const int len
@@ -111,16 +113,16 @@ static struct file_operations fops =
     // Length checks.
 
     if (len == 0) {
-      printk(DEVICE_NAME ":   ZERO LENGTH\n");
+      printk("%s:   ZERO LENGTH\n", deviceName);
       return;
     }
     if (len < 0) {
-      printk(DEVICE_NAME ":   NEGATIVE LENGTH: %d\n", len);
+      printk("%s:   NEGATIVE LENGTH: %d\n", deviceName, len);
       return;
     }
 
     if(len > 400){
-      printk(DEVICE_NAME ":   VERY LONG: %d\n", len);
+      printk("%s:   VERY LONG: %d\n", deviceName, len);
       return;
     }
 
@@ -164,7 +166,7 @@ static struct file_operations fops =
 
     p_out_buff += sprintf (p_out_buff, "  %s\n", buff);
 
-    printk(DEVICE_NAME ": %s", out_buff);
+    printk("%s: %s", deviceName, out_buff);
   }
   EXPORT_SYMBOL_GPL(hexDump);
 #else
@@ -176,41 +178,41 @@ static struct file_operations fops =
  */
 static int gpio_host_proxy_probe(struct platform_device *pdev)
 {
-//	int i;
+  // int i;
 	deb_info("installing module.\n");
 
-// *********************
-// start of TODO clocks and resets -- this commect section is probably not valid
+  // *********************
+  // start of TODO clocks and resets -- this commect section is probably not valid
 
-//	// Read allowed clocks and reset from the device tree
-//	// if clocks or resets are not defined, not initialize the module
-//	gpio_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node,
-//		"allowed-clocks", gpio_ares.clock, 0, GPIO_HOST_MAX_CLOCKS_SIZE);
-//
-//	if(gpio_ares.clocks_size <= 0){
-//		pr_err("No allowed clocks defined\n");
-//		return EINVAL;
-//	}
-//
-//	deb_info("gpio_ares.clocks_size: %d", gpio_ares.clocks_size);
-//	for (i = 0; i < gpio_ares.clocks_size; i++)	{
-//		deb_info("gpio_ares.clock %d", gpio_ares.clock[i]);
-//	}
-//
-//	gpio_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node,
-//		"allowed-resets", gpio_ares.reset, 0, GPIO_HOST_MAX_RESETS_SIZE);
-//
-//	if(gpio_ares.resets_size <= 0){
-//		pr_err("No allowed resets defined\n");
-//		return EINVAL;
-//	}
-//
-//	deb_info("gpio_ares.resets_size: %d", gpio_ares.resets_size);
-//	for (i = 0; i < gpio_ares.resets_size; i++)	{
-//		deb_info("gpio_ares.reset %d", gpio_ares.reset[i]);
-//	}
-// end of TODO clocks and resets
-// *********************
+  //	// Read allowed clocks and reset from the device tree
+  //	// if clocks or resets are not defined, not initialize the module
+  //	gpio_ares.clocks_size = of_property_read_variable_u32_array(pdev->dev.of_node,
+  //		"allowed-clocks", gpio_ares.clock, 0, GPIO_HOST_MAX_CLOCKS_SIZE);
+  //
+  //	if(gpio_ares.clocks_size <= 0){
+  //		pr_err("No allowed clocks defined\n");
+  //		return EINVAL;
+  //	}
+  //
+  //	deb_info("gpio_ares.clocks_size: %d", gpio_ares.clocks_size);
+  //	for (i = 0; i < gpio_ares.clocks_size; i++)	{
+  //		deb_info("gpio_ares.clock %d", gpio_ares.clock[i]);
+  //	}
+  //
+  //	gpio_ares.resets_size = of_property_read_variable_u32_array(pdev->dev.of_node,
+  //		"allowed-resets", gpio_ares.reset, 0, GPIO_HOST_MAX_RESETS_SIZE);
+  //
+  //	if(gpio_ares.resets_size <= 0){
+  //		pr_err("No allowed resets defined\n");
+  //		return EINVAL;
+  //	}
+  //
+  //	deb_info("gpio_ares.resets_size: %d", gpio_ares.resets_size);
+  //	for (i = 0; i < gpio_ares.resets_size; i++)	{
+  //		deb_info("gpio_ares.reset %d", gpio_ares.reset[i]);
+  //	}
+  // end of TODO clocks and resets
+  // *********************
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
@@ -363,8 +365,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   }
 
 	// print copied user parameters
-  hexDump ("Chardev input", kbuf, len);
-
+  hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
 
   // make gpio-host type call to gpio
 	deb_verbose("enter switch with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
@@ -620,8 +621,6 @@ static struct platform_driver gpio_host_proxy_driver = {
 };
 // builtin_platform_driver(gpio_host_proxy_driver);
 
-
-// TODO do not initialise host proxy driver in guest.
 static int __init gpio_host_proxy_init(void)
 {
     int ret = 0;

@@ -41,9 +41,9 @@ MODULE_VERSION("0.0");
 #define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
 
 #ifdef GPIO_DEBUG
-  #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\'" fmt, __func__, __FILE__, ##__VA_ARGS__)
-  #define deb_debug(fmt, ...)    printk(KERN_DEBUG "GPIO func \'%s\' in file \'%s\'" fmt, __func__ , __FILE__, ##__VA_ARGS__)
-  #define deb_error(fmt, ...)    printk(KERN_ERR "GPIO func \'%s\' in file \'%s\'" fmt, __func__ , __FILE__, ##__VA_ARGS__)
+  #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__, __FILE__, ##__VA_ARGS__)
+  #define deb_debug(fmt, ...)    printk(KERN_DEBUG "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__ , __FILE__, ##__VA_ARGS__)
+  #define deb_error(fmt, ...)    printk(KERN_ERR "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__ , __FILE__, ##__VA_ARGS__)
 #else
   #define deb_info(fmt, ...)
   #define deb_debug(fmt, ...)
@@ -53,6 +53,7 @@ MODULE_VERSION("0.0");
 #ifdef GPIO_DEBUG_VERBOSE
   #define deb_verbose           deb_debug
   extern void hexDump (
+    const char * deviceName,
     const char * desc,
     const void * addr,
     const int len
@@ -92,7 +93,7 @@ void guest_chardev_transfer(void *msg, int msg_len, int *generic_return)
   memcpy(io_buffer, msg, msg_len);
 
   #ifdef GPIO_DEBUG_VERBOSE
-    hexDump("msg", &msg, msg_len);
+    hexDump(DEVICE_NAME, "msg", &msg, msg_len);
     deb_verbose("msg signal is: %c\n", *(char *)msg);
   #endif
 
@@ -335,11 +336,22 @@ static struct file_operations fops =
 		.write = write
 	};
 
+static bool is_set_up = false;
+
 /**
  * Initializes module at installation
  */
-int tegra_gpio_guest_init(struct gpio_chip *gpio)
+int tegra_gpio_guest_init(void)
 {
+  // Note: gpio is not referenced, the init is agnostic to which chip triggered this function
+  // In an earlier versio of the code we stored the gpio struct pointer in a static table
+  // int this_chip_id = gpio.gpio->gpiodev.id;
+  // char this_device[12];
+  if(is_set_up) { 
+    deb_error("Attempting to set up guest driver twice\n");
+    return -EPERM;
+  }
+
 	deb_info("installing module.");
 
 	deb_info("gpio_vpa: 0x%llx", gpio_vpa);
@@ -347,6 +359,7 @@ int tegra_gpio_guest_init(struct gpio_chip *gpio)
 	if(!gpio_vpa){
 		pr_err("Failed, gpio_vpa not defined");
 	}
+
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
@@ -391,6 +404,7 @@ int tegra_gpio_guest_init(struct gpio_chip *gpio)
   // gpio_hook is called by preserve_tegrachip() in gpio_tegra186.c -- don't call it here
   // gpio_hook()
 
+  is_set_up = true;
 	return 0;
 }
 
@@ -417,6 +431,8 @@ void tegra_gpio_guest_cleanup(void)
 	unregister_chrdev(major_number, DEVICE_NAME);		  // unregister the major number
 	deb_info("Goodbye from the LKM!\n");
 	unregister_chrdev(major_number, DEVICE_NAME);
+
+  is_set_up = false;
 	return;
 }
 
@@ -519,7 +535,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   }
 
 	// print copied user parameters
-  hexDump ("Chardev input", kbuf, len);
+  hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
 
 
   // make gpio-host type call to gpio
