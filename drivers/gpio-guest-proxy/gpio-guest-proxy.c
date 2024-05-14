@@ -85,17 +85,16 @@ void guest_chardev_transfer(void *msg, int msg_len, int *generic_return)
 {
 	unsigned char *io_buffer;
 
-	deb_debug("\n");
+	// deb_debug("\n");
+  #ifdef GPIO_DEBUG_VERBOSE
+    hexDump(DEVICE_NAME, "msg", &msg, msg_len);
+    deb_verbose("passthrough signal is: %c", *(char *)msg);
+  #endif
 
 	// Copy msg, to io_buffer
 	io_buffer = kmalloc(msg_len, GFP_KERNEL);
 	memset(io_buffer, 0, msg_len);
   memcpy(io_buffer, msg, msg_len);
-
-  #ifdef GPIO_DEBUG_VERBOSE
-    hexDump(DEVICE_NAME, "msg", &msg, msg_len);
-    deb_verbose("msg signal is: %c\n", *(char *)msg);
-  #endif
 
 	// Execute the request by copying the io_buffer
 	memcpy_toio(mem_iova, io_buffer, msg_len);
@@ -107,11 +106,37 @@ void guest_chardev_transfer(void *msg, int msg_len, int *generic_return)
   if(generic_return) {
 	// Copy reply to io_buffer
 	memcpy(generic_return, io_buffer, sizeof(*generic_return));
-	deb_verbose("return value is copied %d\n", *generic_return);
+	deb_verbose("return value %d is copied", *generic_return);
   }
 
   kfree(io_buffer);
 }
+
+// redirect static inline u32 readl(const volatile void __iomem *addr)
+inline u32 readl_redirect( void * addr) {
+  int ret = 0;
+  struct tegra_readl_writel msg;
+
+  msg.signal = GPIO_READL;
+  msg.address = addr;
+  msg.value = 0;  // value field is not used
+
+  guest_chardev_transfer(&msg, sizeof(msg), &ret);
+  return (u32)ret;
+}
+EXPORT_SYMBOL_GPL(readl_redirect);
+
+// redirect: static inline void writel(u32 value, volatile void __iomem *addr)
+inline void writel_redirect( u32 value, void * addr) {
+  struct tegra_readl_writel msg;
+
+  msg.signal = GPIO_WRITEL;
+  msg.address = addr;
+  msg.value = value;
+
+  guest_chardev_transfer(&msg, sizeof(msg), NULL);
+}
+EXPORT_SYMBOL_GPL(writel_redirect);
 
 int gpiochip_generic_request_redirect(struct gpio_chip *chip, unsigned offset) {
   int ret = 0;
@@ -354,12 +379,11 @@ int tegra_gpio_guest_init(void)
 
 	deb_info("installing module.");
 
-	deb_info("gpio_vpa: 0x%llx", gpio_vpa);
-
 	if(!gpio_vpa){
 		pr_err("Failed, gpio_vpa not defined");
+    return -1;
 	}
-
+	deb_info("gpio_vpa: 0x%llx", gpio_vpa);
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
@@ -399,15 +423,11 @@ int tegra_gpio_guest_init(void)
         return -ENOMEM;
   }
 
-	deb_info("gpio_vpa: 0x%llX, mem_iova: %p\n", gpio_vpa, mem_iova);
-
-  // gpio_hook is called by preserve_tegrachip() in gpio_tegra186.c -- don't call it here
-  // gpio_hook()
+	deb_info("mem_iova: 0x%llx\n", (long long unsigned int)mem_iova);
 
   is_set_up = true;
 	return 0;
 }
-
 EXPORT_SYMBOL_GPL(tegra_gpio_guest_init);
 
 /*

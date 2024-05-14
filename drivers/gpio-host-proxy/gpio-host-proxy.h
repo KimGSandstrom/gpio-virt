@@ -37,7 +37,7 @@ struct gpio_device {
 #define GPIO_FREE            'f'   // free
 
 #define GPIO_TIMESTAMP_CTRL  'C'   // timestamp control
-#define GPIO_TIMESTAMP_READ  'R'   // timestamp read
+#define GPIO_TIMESTAMP_READ  'T'   // timestamp read
 #define GPIO_SUSPEND_CONF    'S'   // suspend configure
 #define GPIO_ADD_PINRANGES   'P'   // add_pin_ranges
 
@@ -47,6 +47,17 @@ struct gpio_device {
 #define TEGRA_GPIO_LABEL      "tegra234-gpio\x00\x00\x00\x00\x00\x00\x00"  // gpio_main_chip / gpiochip0 --padded to 20 bytes
 #define TEGRA_GPIO_AON_LABEL  "tegra234-gpio-aon\x00\x00\x00"              // gpio_aon_chip  / gpiochip1 --padded to 20 bytes
 #define LABEL_SIZE            20
+
+#define GPIO_READL            'R'
+#define GPIO_WRITEL           'W'
+
+// sizeof is rounded to even 64 bit passhtough writes -- no need to optimise size further on an aarch64
+struct tegra_readl_writel {
+  unsigned char signal;       // Note: signal field is overloaded (based on field offset) with signal in struct tegra_gpio_pt
+  unsigned char pad[3];       // to get an even 64 bit message size
+  u32 value;
+  void * address;
+};
 
 // struct __attribute__((packed)) tegra_gpio_pt {
 struct tegra_gpio_pt {
@@ -69,6 +80,9 @@ typedef union extended {
 } tegra_gpio_pt_extended;
 
 #define MAX_CHIP 2
+
+_Static_assert( sizeof(struct tegra_readl_writel) == 16,
+               "tegra_readl_writel size is not 16 bytes." );
 
 _Static_assert( sizeof(struct tegra_gpio_pt) == 8,
                "tegra_gpio_pt size is not 8 bytes." );

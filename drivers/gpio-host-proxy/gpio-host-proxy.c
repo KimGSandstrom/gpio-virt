@@ -312,6 +312,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	unsigned long int ret_l;
 	struct tegra_gpio_pt *kbuf = NULL;
 	tegra_gpio_pt_extended *kbuf_ext = NULL;
+  struct tegra_readl_writel *kbuf_rw = NULL;  // used in special case the parameters are for readl and writel passthrough
 
 	static struct file *file;
 	static struct inode *inode = NULL;
@@ -332,7 +333,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	} */
 
   // We allow tegra_gpio_pt alone or with tegra_gpio_pt_extended (verify later)
-	if( len != sizeof(struct tegra_gpio_pt) && len != sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) )  {
+	if( len != sizeof(struct tegra_gpio_pt) && \
+      len != sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) && \
+      len != sizeof(struct tegra_readl_writel))  {
 		pr_err("Illegal chardev data length. Expected %ld or %ld, got %ld", sizeof(struct tegra_gpio_pt), sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended), len);
 		return -ENOEXEC;
 	}
@@ -359,6 +362,8 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   }
   deb_verbose("kbuf is set up, kbuf=%p", kbuf);
 
+  // return_buffer += len; // ??? we should write return to the base address? no increment? generates new interrupt?
+
   if( len == (sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) ) ) {
     kbuf_ext = (tegra_gpio_pt_extended *)(kbuf + 1);
     deb_verbose("kbuf_ext is set up kbuf_ext=%p", kbuf_ext);
@@ -371,6 +376,16 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	deb_verbose("enter switch with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
 
   switch (kbuf->signal) {
+    case GPIO_READL:
+      kbuf_rw = (struct tegra_readl_writel *)kbuf;
+      ret = (int)readl(kbuf_rw->address);
+      goto end;
+    break;
+    case GPIO_WRITEL:
+      kbuf_rw = (struct tegra_readl_writel *)kbuf;
+      writel(kbuf_rw->value, kbuf_rw->address);
+      goto retval;
+    break;
     case GPIO_REQ:
       // if(kbuf->chipnum & 0xfe) {    // 0 and 1 are allowed values & mask allows fastcheck, marginal save
       if(kbuf->chipnum >= MAX_CHIP) {  // direct copmparison is more future flexible
