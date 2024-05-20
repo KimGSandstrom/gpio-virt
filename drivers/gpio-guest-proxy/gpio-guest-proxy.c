@@ -570,9 +570,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
         kfree(kbuf);
         return -ENODEV;
       }
-      chip = find_chip_by_id(kbuf->chipnum);
+      chip = find_chip_by_name(kbuf->chipnum);
       #ifdef GPIO_DEBUG_VERBOSE
-        chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
+        chip_alt = find_chip_by_id(tegra_chiplabel[kbuf->chipnum]);
         if(chip != chip_alt)
           deb_debug("conflicting chip pointers -- primary %p, alternative %p", chip, chip_alt);
       #endif
