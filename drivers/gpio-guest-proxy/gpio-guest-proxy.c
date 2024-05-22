@@ -108,7 +108,7 @@ void guest_chardev_transfer(void *msg, int msg_len, int *generic_return)
   kfree(io_buffer);
 }
 
-// redirect static inline u32 readl(const volatile void __iomem *addr)
+// redirect static inline u32 readl_x(const volatile void __iomem *addr)
 inline u32 readl_redirect( void * addr, const unsigned char rwltype) {
   int ret = 0;
   struct tegra_readl_writel msg;
@@ -123,7 +123,7 @@ inline u32 readl_redirect( void * addr, const unsigned char rwltype) {
 }
 EXPORT_SYMBOL_GPL(readl_redirect);
 
-// redirect: static inline void writel(u32 value, volatile void __iomem *addr)
+// redirect: static inline void writel_x(u32 value, volatile void __iomem *addr)
 inline void writel_redirect( u32 value, void * addr, const unsigned char rwltype) {
   struct tegra_readl_writel msg;
 
@@ -557,7 +557,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 
   // make gpio-host type call to gpio
-	deb_verbose("enter switch with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
+	deb_verbose("Passthrough from guest with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
 
   switch (kbuf->signal) {
     case GPIO_REQ:

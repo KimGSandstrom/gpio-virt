@@ -399,13 +399,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       switch (kbuf_rw->rwltype) {
         case GPIO_RWL_STD:
-          writel(kbuf_rw->value, kbuf_rw->address);
+         writel(kbuf_rw->value, kbuf_rw->address);
         break;
         case GPIO_RWL_RAW:
-          __raw_writel(kbuf_rw->value, kbuf_rw->address);
+         __raw_writel(kbuf_rw->value, kbuf_rw->address);
         break;
         case GPIO_RWL_RELAXED:
-          writel_relaxed(kbuf_rw->value, kbuf_rw->address);
+         writel_relaxed(kbuf_rw->value, kbuf_rw->address);
         break;
       }
       goto retval;
