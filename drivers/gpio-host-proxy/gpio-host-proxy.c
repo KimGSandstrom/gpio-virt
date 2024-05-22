@@ -422,9 +422,10 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       #ifdef GPIO_DEBUG_VERBOSE
         // chip_alt = find_chip_by_id(kbuf->chipnum);
         chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
-        if(chip != chip_alt)
+        if(chip != chip_alt) {
           deb_debug("conflicting chip pointers -- primary %p, alternative %p", chip, chip_alt);
           chip = chip_alt; // we assume find_chip_by_name is more reliable
+        }
       #endif
       if(!chip) {
         pr_err("In GPIO_REQ, chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);
