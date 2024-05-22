@@ -14,12 +14,16 @@
 //#include <soc/tegra/gpio.h>
 #include <linux/platform_device.h>
 #include <linux/of_device.h>
-#include "../gpio-host-proxy/gpio-host-proxy.h"
 #include <linux/gpio/driver.h>
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/namei.h>
 #include <linux/delay.h>
+
+#include "../gpio-host-proxy/gpio-host-proxy.h"
+const unsigned char rwl_std_type     = GPIO_RWL_STD;
+const unsigned char rwl_raw_type     = GPIO_RWL_RAW;
+const unsigned char rwl_relaxed_type = GPIO_RWL_RELAXED;
 
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
@@ -378,12 +382,32 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   switch (kbuf->signal) {
     case GPIO_READL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
-      ret = (int)readl(kbuf_rw->address);
+      switch (kbuf_rw->rwltype) {
+        case GPIO_RWL_STD:
+          ret = (int)readl(kbuf_rw->address);
+        break;
+        case GPIO_RWL_RAW:
+          ret = (int)__raw_readl(kbuf_rw->address);
+        break;
+        case GPIO_RWL_RELAXED:
+          ret = (int)readl_relaxed(kbuf_rw->address);
+        break;
+      }
       goto end;
     break;
     case GPIO_WRITEL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
-      writel(kbuf_rw->value, kbuf_rw->address);
+      switch (kbuf_rw->rwltype) {
+        case GPIO_RWL_STD:
+          writel(kbuf_rw->value, kbuf_rw->address);
+        break;
+        case GPIO_RWL_RAW:
+          __raw_writel(kbuf_rw->value, kbuf_rw->address);
+        break;
+        case GPIO_RWL_RELAXED:
+          writel_relaxed(kbuf_rw->value, kbuf_rw->address);
+        break;
+      }
       goto retval;
     break;
     case GPIO_REQ:
@@ -394,18 +418,19 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
         kfree(kbuf);
         return -ENODEV;
       }
-      chip = find_chip_by_name(kbuf->chipnum);
+      chip = find_chip_by_id(kbuf->chipnum);
       #ifdef GPIO_DEBUG_VERBOSE
-        chip_alt = find_chip_by_id(tegra_chiplabel[kbuf->chipnum]);
+        // chip_alt = find_chip_by_id(kbuf->chipnum);
+        chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
         if(chip != chip_alt)
           deb_debug("conflicting chip pointers -- primary %p, alternative %p", chip, chip_alt);
+          chip = chip_alt; // we assume find_chip_by_name is more reliable
       #endif
       if(!chip) {
         pr_err("In GPIO_REQ, chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);
         kfree(kbuf);
         return -ENODEV;
       }
-
       deb_verbose("GPIO_REQ, using GPIO chip %s, for device %d, pvalue = %p", chip->label, kbuf->chipnum, chip);
       ret = chip->request(chip, kbuf->offset);
 	    goto end;

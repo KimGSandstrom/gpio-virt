@@ -16,7 +16,6 @@
 #include <linux/mm.h>
 #include <linux/memory_hotplug.h>
 #include <linux/io.h>
-#include "../gpio-host-proxy/gpio-host-proxy.h"
 #include <linux/gpio/driver.h>
 #include <linux/of_device.h>
 #include <linux/gpio.h>
@@ -24,10 +23,7 @@
 #include <linux/namei.h>
 #include <linux/delay.h>
 
-// we need a workaround for this -- relevant data copied to gpio-host-proxy.h
-// #include "$(abs_srctree)/drivers/gpio/gpiolib.h"
-
-
+#include "../gpio-host-proxy/gpio-host-proxy.h"
 
 #define DEVICE_NAME "gpio-guest" // Device name.
 #define CLASS_NAME "char"
@@ -113,11 +109,12 @@ void guest_chardev_transfer(void *msg, int msg_len, int *generic_return)
 }
 
 // redirect static inline u32 readl(const volatile void __iomem *addr)
-inline u32 readl_redirect( void * addr) {
+inline u32 readl_redirect( void * addr, const unsigned char rwltype) {
   int ret = 0;
   struct tegra_readl_writel msg;
 
   msg.signal = GPIO_READL;
+  msg.rwltype = rwltype;
   msg.address = addr;
   msg.value = 0;  // value field is not used
 
@@ -127,10 +124,11 @@ inline u32 readl_redirect( void * addr) {
 EXPORT_SYMBOL_GPL(readl_redirect);
 
 // redirect: static inline void writel(u32 value, volatile void __iomem *addr)
-inline void writel_redirect( u32 value, void * addr) {
+inline void writel_redirect( u32 value, void * addr, const unsigned char rwltype) {
   struct tegra_readl_writel msg;
 
   msg.signal = GPIO_WRITEL;
+  msg.rwltype = rwltype;
   msg.address = addr;
   msg.value = value;
 
@@ -570,11 +568,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
         kfree(kbuf);
         return -ENODEV;
       }
-      chip = find_chip_by_name(kbuf->chipnum);
+      chip = find_chip_by_id(kbuf->chipnum);
       #ifdef GPIO_DEBUG_VERBOSE
-        chip_alt = find_chip_by_id(tegra_chiplabel[kbuf->chipnum]);
+        // chip_alt = find_chip_by_id(kbuf->chipnum);
+        chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
         if(chip != chip_alt)
           deb_debug("conflicting chip pointers -- primary %p, alternative %p", chip, chip_alt);
+          chip = chip_alt; // we assume find_chip_by_name is more reliable
       #endif
       if(!chip) {
         pr_err("In GPIO_REQ, chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);

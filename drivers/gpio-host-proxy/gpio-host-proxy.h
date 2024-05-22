@@ -50,11 +50,20 @@ struct gpio_device {
 
 #define GPIO_READL            'R'
 #define GPIO_WRITEL           'W'
+#define GPIO_RWL_STD          '0'   // general readl/writeL
+#define GPIO_RWL_RAW          '1'   // __raw assembler version of readl/writel
+#define GPIO_RWL_RELAXED      '2'   // __relaxed assembler version of readl/writel
+
+// Note this extern is also in gpio-proxy.h in the kernel source tree (this proxy code might be in an overlay)
+extern const unsigned char rwl_std_type;
+extern const unsigned char rwl_raw_type;
+extern const unsigned char rwl_relaxed_type;
 
 // sizeof is rounded to even 64 bit passhtough writes -- no need to optimise size further on an aarch64
 struct tegra_readl_writel {
   unsigned char signal;       // Note: signal field is overloaded (based on field offset) with signal in struct tegra_gpio_pt
-  unsigned char pad[3];       // to get an even 64 bit message size
+  unsigned char rwltype;      // type of readl/writel call
+  unsigned char pad[2];       // to get an even mod 64 bit message size
   u32 value;
   void * address;
 };
