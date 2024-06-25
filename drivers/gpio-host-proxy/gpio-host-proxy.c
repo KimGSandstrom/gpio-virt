@@ -21,9 +21,9 @@
 #include <linux/delay.h>
 
 #include "../gpio-host-proxy/gpio-host-proxy.h"
-const unsigned char rwl_std_type     = GPIO_RWL_STD;
-const unsigned char rwl_raw_type     = GPIO_RWL_RAW;
-const unsigned char rwl_relaxed_type = GPIO_RWL_RELAXED;
+const unsigned char rwl_std_type     = RWL_STD;
+const unsigned char rwl_raw_type     = RWL_RAW;
+const unsigned char rwl_relaxed_type = RWL_RELAXED;
 
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
@@ -313,13 +313,16 @@ static bool check_if_allowed(int val)
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	unsigned int ret;
-	unsigned long int ret_l;
 	struct tegra_gpio_pt *kbuf = NULL;
 	tegra_gpio_pt_extended *kbuf_ext = NULL;
   struct tegra_readl_writel *kbuf_rw = NULL;  // used in special case the parameters are for readl and writel passthrough
 
+  /*
+	unsigned long int ret_l;
 	static struct file *file;
 	static struct inode *inode = NULL;
+  */
+
 	struct gpio_chip *chip;
   #ifdef GPIO_DEBUG
 	  struct gpio_chip *chip_alt;
@@ -336,19 +339,27 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		return -EINVAL;
 	} */
 
+  // DEBUG solution for very long write to chardev
+  goto debug; 
+
   // We allow tegra_gpio_pt alone or with tegra_gpio_pt_extended (verify later)
 	if( len != sizeof(struct tegra_gpio_pt) && \
       len != sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) && \
       len != sizeof(struct tegra_readl_writel))  {
-		pr_err("Illegal chardev data length. Expected %ld or %ld, got %ld", sizeof(struct tegra_gpio_pt), sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended), len);
+ 		  pr_err("Illegal chardev data length. Expected %ld or %ld, got %ld", sizeof(struct tegra_gpio_pt), sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended), len);
+      hexDump (DEVICE_NAME, "Chardev (host) input error", buffer, len);
 		return -ENOEXEC;
 	}
+
+  // DEBUG
+  debug:
 
   if(!offset) {
     pr_err("offset pointer is null, ignoring offset\n");
   }
   else {
 	  read_buffer += (*offset);
+	  return_buffer += (*offset);
   }
 
 	kbuf = kmalloc(len, GFP_KERNEL);
@@ -358,9 +369,26 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 	memset(kbuf, 0, len);
 
+  // DEBUG
+  deb_verbose("tmp debug, buffer = %p, len = %ld, offset = %p", buffer, len, offset);
+  if(buffer && access_ok(buffer,1)) {
+    printk(KERN_DEBUG "buffer lvalue %c", *buffer);
+  } 
+  else {
+    kfree(kbuf);
+    return -ENOMEM;
+  }
+  // END DEBUG
+ 
 	// Copy header
+  if(access_ok(read_buffer, sizeof(struct tegra_gpio_pt))) {
   if (copy_from_user(kbuf, read_buffer, sizeof(struct tegra_gpio_pt))) {
     pr_err("copy_from_user failed\n");
+    kfree(kbuf);
+    return -ENOMEM;
+  }
+  }
+  else {
     kfree(kbuf);
     return -ENOMEM;
   }
@@ -374,22 +402,24 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   }
 
 	// print copied user parameters
-  hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
+  // hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
+  // DEBUG
+  hexDump (DEVICE_NAME, "Chardev input", kbuf, 16);
 
   // make gpio-host type call to gpio
-	deb_verbose("enter switch with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
+	deb_verbose("Passthrough in host with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
 
   switch (kbuf->signal) {
     case GPIO_READL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       switch (kbuf_rw->rwltype) {
-        case GPIO_RWL_STD:
+        case RWL_STD:
           ret = (int)readl(kbuf_rw->address);
         break;
-        case GPIO_RWL_RAW:
+        case RWL_RAW:
           ret = (int)__raw_readl(kbuf_rw->address);
         break;
-        case GPIO_RWL_RELAXED:
+        case RWL_RELAXED:
           ret = (int)readl_relaxed(kbuf_rw->address);
         break;
       }
@@ -398,13 +428,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     case GPIO_WRITEL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       switch (kbuf_rw->rwltype) {
-        case GPIO_RWL_STD:
+        case RWL_STD:
          writel(kbuf_rw->value, kbuf_rw->address);
         break;
-        case GPIO_RWL_RAW:
+        case RWL_RAW:
          __raw_writel(kbuf_rw->value, kbuf_rw->address);
         break;
-        case GPIO_RWL_RELAXED:
+        case RWL_RELAXED:
          writel_relaxed(kbuf_rw->value, kbuf_rw->address);
         break;
       }
@@ -529,21 +559,21 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   };
   */
 
+  /*
   if(kbuf_ext) {
     switch (kbuf->signal) {
-      /* commands to ioctl below (the std gpio chardev)
-      * not fully implemented
-      * linehandle_create  -- when userspace requests output (called by gpio_ioctl) -- bypasses the chardev
-      * linehandle_ioctl   -- linehandle_ioctl when userspace does actual io (toggles pin)
-      *    cmd:
-      *    GPIOHANDLE_GET_LINE_VALUES_IOCTL,
-      *    GPIOHANDLE_SET_LINE_VALUES_IOCTL,
-      *    GPIOHANDLE_SET_CONFIG_IOCTL
-      *    arg: user input or output
-      */
-
+      // commands to ioctl below (the std gpio chardev)
+      // not fully implemented
+      // linehandle_create  -- when userspace requests output (called by gpio_ioctl) -- bypasses the chardev
+      // linehandle_ioctl   -- linehandle_ioctl when userspace does actual io (toggles pin)
+      //   cmd:
+      //   GPIOHANDLE_GET_LINE_VALUES_IOCTL,
+      //   GPIOHANDLE_SET_LINE_VALUES_IOCTL,
+      //   GPIOHANDLE_SET_CONFIG_IOCTL
+      //   arg: user input or output
+      //
       // We could want to use the stock gpio chardev (/dev/gpiochip0 and /dev/gpiochip1) /bc userspace functions use it
-      // this code is not yet complete and it mey be better to use the stock devices directly.
+      // this code is not yet complete but it mey be better to use our own passtrhough chardev /dev/gpio-host.
       case GPIO_CHARDEV_OPEN:	// .open = gpio_chrdev_open
         file = filp_open(tegra_chiplabel[kbuf->chipnum], O_RDWR, 0);
           if (IS_ERR(file)) {
@@ -627,6 +657,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		kfree(kbuf);
 		return -EFAULT;
 	};
+  */
 
 	goto end;
 
@@ -636,8 +667,6 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		kfree(kbuf);
 		return -EFAULT;
 	};
-
-	goto end;
 
 	end:
 	kfree(kbuf);

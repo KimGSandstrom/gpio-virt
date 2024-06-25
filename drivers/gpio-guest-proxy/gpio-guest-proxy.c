@@ -58,7 +58,7 @@ MODULE_VERSION("0.0");
   #define deb_verbose(fmt, ...)
 #endif
 
-#define MEM_SIZE       0x0600   // size of passthrough memory (mem_iova) -- larger than needed
+// MEM_SIZE defined in gpio-host-proxy.h
 static volatile void __iomem  *mem_iova = NULL;
 
 extern struct gpio_chip *find_chip_by_name(const char *);
@@ -79,60 +79,79 @@ extern uint64_t gpio_vpa;
  */ 
 void guest_chardev_transfer(void *msg, int msg_len, int *generic_return)
 {
-	unsigned char *io_buffer;
+  // unsigned char io_buffer[MEM_SIZE];
 
 	// deb_debug("\n");
   #ifdef GPIO_DEBUG_VERBOSE
-    hexDump(DEVICE_NAME, "msg", &msg, msg_len);
-    deb_verbose("passthrough signal is: %c", *(char *)msg);
+    deb_verbose("PT transfer signal is: %c", *(char *)msg);
+    hexDump(DEVICE_NAME, "transfer", msg, msg_len);
   #endif
 
+  /*
 	// Copy msg, to io_buffer
-	io_buffer = kmalloc(msg_len, GFP_KERNEL);
+	// io_buffer = kmalloc(msg_len, GFP_KERNEL);
 	memset(io_buffer, 0, msg_len);
   memcpy(io_buffer, msg, msg_len);
 
 	// Execute the request by copying the io_buffer
 	memcpy_toio(mem_iova, io_buffer, msg_len);
+  // kfree(io_buffer);
+  */
 
-	// Read response to io_buffer
-	memcpy_fromio(io_buffer, mem_iova, sizeof(*generic_return));
+	// Execute the request by copying to io memory
+  deb_verbose("tmp debug mark, length = %d", msg_len);
+	memcpy_toio(mem_iova, msg, msg_len);
+  deb_verbose("PT request value is copied, length = %d", msg_len);
 
   // check if we expect a return value
   if(generic_return) {
-	// Copy reply to io_buffer
-	memcpy(generic_return, io_buffer, sizeof(*generic_return));
-	deb_verbose("return value %d is copied", *generic_return);
+    // Read response to io_buffer
+    memcpy_fromio(&generic_return, mem_iova, sizeof(*generic_return));
+    deb_verbose("PT return value %d, is copied", *generic_return);
   }
-
-  kfree(io_buffer);
 }
+
+/* this will not work -- we canot passthrough pointers
+int devm_gpiochip_add_data__redirect(struct device *dev, struct gpio_chip *gc, void *data) {
+  int ret = 0;
+  struct tegra_readl_writel msg;
+
+  msg.signal = GPIO_ADD_DATA
+  msg.device = dev
+  msg.chip = gc;
+  msg.data = data;  // value field is not used
+
+  guest_chardev_transfer(&msg, sizeof(msg), &ret);
+  return (u32)ret;
+}
+EXPORT_SYMBOL_GPL(devm_gpiochip_add_data__redirect);
+*/
 
 // redirect static inline u32 readl_x(const volatile void __iomem *addr)
 inline u32 readl_redirect( void * addr, const unsigned char rwltype) {
   int ret = 0;
-  struct tegra_readl_writel msg;
+  struct tegra_readl_writel rwlmsg;
 
-  msg.signal = GPIO_READL;
-  msg.rwltype = rwltype;
-  msg.address = addr;
-  msg.value = 0;  // value field is not used
+  rwlmsg.signal = GPIO_READL;
+  rwlmsg.rwltype = rwltype;
+  rwlmsg.address = addr;
+  rwlmsg.value = 0;  // value field is not used
 
-  guest_chardev_transfer(&msg, sizeof(msg), &ret);
+  guest_chardev_transfer(&rwlmsg, sizeof(rwlmsg), &ret);
   return (u32)ret;
 }
 EXPORT_SYMBOL_GPL(readl_redirect);
 
 // redirect: static inline void writel_x(u32 value, volatile void __iomem *addr)
 inline void writel_redirect( u32 value, void * addr, const unsigned char rwltype) {
-  struct tegra_readl_writel msg;
+  struct tegra_readl_writel rwlmsg;
 
-  msg.signal = GPIO_WRITEL;
-  msg.rwltype = rwltype;
-  msg.address = addr;
-  msg.value = value;
+  rwlmsg.signal = GPIO_WRITEL;
+  rwlmsg.rwltype = rwltype;
+  rwlmsg.address = addr;
+  rwlmsg.value = value;
 
-  guest_chardev_transfer(&msg, sizeof(msg), NULL);
+  guest_chardev_transfer(&rwlmsg, sizeof(rwlmsg), NULL);
 }
 EXPORT_SYMBOL_GPL(writel_redirect);
 
@@ -310,23 +329,6 @@ int tegra186_gpio_add_pin_ranges_redirect(struct gpio_chip *chip) {
   return ret;
 }
 
-/*
-// export of redirection functions
-EXPORT_SYMBOL_GPL(gpiochip_generic_request_redirect);
-EXPORT_SYMBOL_GPL(gpiochip_generic_free_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_get_direction_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_direction_input_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_direction_output_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_get_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_set_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_set_by_name_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_set_config_redirect);
-EXPORT_SYMBOL_GPL(tegra_gpio_timestamp_control_redirect);
-EXPORT_SYMBOL_GPL(tegra_gpio_timestamp_read_redirect);
-EXPORT_SYMBOL_GPL(tegra_gpio_suspend_configure_redirect);
-EXPORT_SYMBOL_GPL(tegra186_gpio_add_pin_ranges_redirect);
-*/
-
 // unpreserve_all_tegrachips also does unhooking ?
 extern void unpreserve_all_tegrachips(void);
 struct gpio_chip * find_chip_by_id(int id);
@@ -369,7 +371,7 @@ int tegra_gpio_guest_init(void)
   // Note: gpio is not referenced, the init is agnostic to which chip triggered this function
   // In an earlier versio of the code we stored the gpio struct pointer in a static table
   // int this_chip_id = gpio.gpio->gpiodev.id;
-  // char this_device[12];
+  // char this_de:avice[12];
   if(is_set_up) { 
     deb_error("Attempting to set up guest driver twice\n");
     return -EPERM;
@@ -522,6 +524,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   // We allow tegra_gpio_pt alone or with tegra_gpio_pt_extended (verify later)
 	if( len != sizeof(struct tegra_gpio_pt) && len != sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) )  {
 		pr_err("Illegal chardev data length. Expected %ld or %ld, got %ld", sizeof(struct tegra_gpio_pt), sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended), len);
+    hexDump (DEVICE_NAME, "Chardev (guest) input error", buffer, len);
 		return -ENOEXEC;
 	}
 
@@ -545,16 +548,19 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     kfree(kbuf);
     return -ENOMEM;
   }
-  deb_verbose("kbuf is set up, kbuf=%p", kbuf);
+  // deb_verbose("kbuf is set up, kbuf=%p", kbuf);
 
   if( len == (sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) ) ) {
     kbuf_ext = (tegra_gpio_pt_extended *)(kbuf + 1);
-    deb_verbose("kbuf_ext is set up kbuf_ext=%p", kbuf_ext);
+    // deb_verbose("kbuf_ext is set up kbuf_ext=%p", kbuf_ext);
   }
 
+  /*
+  #ifdef GPIO_DEBUG_VERBOSE
 	// print copied user parameters
   hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
-
+  #endif
+  */
 
   // make gpio-host type call to gpio
 	deb_verbose("Passthrough from guest with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
@@ -569,6 +575,8 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
         return -ENODEV;
       }
       chip = find_chip_by_id(kbuf->chipnum);
+      chip_alt = chip;
+/*
       #ifdef GPIO_DEBUG_VERBOSE
         // chip_alt = find_chip_by_id(kbuf->chipnum);
         chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
@@ -577,6 +585,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
           chip = chip_alt; // we assume find_chip_by_name is more reliable
         }
       #endif
+ */
       if(!chip) {
         pr_err("In GPIO_REQ, chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);
         kfree(kbuf);
