@@ -54,7 +54,7 @@ while [ $i -gt 0 ]
     chipnum='\x01';offset='\x09'; setlevel
     chipnum='\x00';offset='\x2B'; setlevel
 
-done
+  done
 
 chipnum='\x01';offset='\x02'; free 
 chipnum='\x01';offset='\x08'; free

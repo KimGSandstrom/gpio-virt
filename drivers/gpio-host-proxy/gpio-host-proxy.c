@@ -339,15 +339,15 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		return -EINVAL;
 	} */
 
-  // DEBUG solution for very long write to chardev
+  // DEBUG tmp solution for very long write to chardev
   goto debug; 
 
   // We allow tegra_gpio_pt alone or with tegra_gpio_pt_extended (verify later)
 	if( len != sizeof(struct tegra_gpio_pt) && \
       len != sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) && \
       len != sizeof(struct tegra_readl_writel))  {
- 		  pr_err("Illegal chardev data length. Expected %ld or %ld, got %ld", sizeof(struct tegra_gpio_pt), sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended), len);
-      hexDump (DEVICE_NAME, "Chardev (host) input error", buffer, len);
+          pr_err("Illegal chardev data length. Expected %ld or %ld, got %ld", sizeof(struct tegra_gpio_pt), sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended), len);
+          hexDump (DEVICE_NAME, "Chardev (host) input error", buffer, len);
 		return -ENOEXEC;
 	}
 
@@ -369,26 +369,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 	memset(kbuf, 0, len);
 
-  // DEBUG
-  deb_verbose("tmp debug, buffer = %p, len = %ld, offset = %p", buffer, len, offset);
-  if(buffer && access_ok(buffer,1)) {
-    printk(KERN_DEBUG "buffer lvalue %c", *buffer);
-  } 
-  else {
-    kfree(kbuf);
-    return -ENOMEM;
-  }
-  // END DEBUG
- 
 	// Copy header
-  if(access_ok(read_buffer, sizeof(struct tegra_gpio_pt))) {
   if (copy_from_user(kbuf, read_buffer, sizeof(struct tegra_gpio_pt))) {
     pr_err("copy_from_user failed\n");
-    kfree(kbuf);
-    return -ENOMEM;
-  }
-  }
-  else {
     kfree(kbuf);
     return -ENOMEM;
   }
@@ -401,10 +384,8 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     deb_verbose("kbuf_ext is set up kbuf_ext=%p", kbuf_ext);
   }
 
-	// print copied user parameters
-  // hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
-  // DEBUG
-  hexDump (DEVICE_NAME, "Chardev input", kbuf, 16);
+  // print copied user parameters
+  hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
 
   // make gpio-host type call to gpio
 	deb_verbose("Passthrough in host with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
@@ -429,13 +410,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       switch (kbuf_rw->rwltype) {
         case RWL_STD:
-         writel(kbuf_rw->value, kbuf_rw->address);
+          writel(kbuf_rw->value, kbuf_rw->address);
         break;
         case RWL_RAW:
-         __raw_writel(kbuf_rw->value, kbuf_rw->address);
+          __raw_writel(kbuf_rw->value, kbuf_rw->address);
         break;
         case RWL_RELAXED:
-         writel_relaxed(kbuf_rw->value, kbuf_rw->address);
+          writel_relaxed(kbuf_rw->value, kbuf_rw->address);
         break;
       }
       goto retval;
@@ -562,18 +543,20 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   /*
   if(kbuf_ext) {
     switch (kbuf->signal) {
-      // commands to ioctl below (the std gpio chardev)
-      // not fully implemented
-      // linehandle_create  -- when userspace requests output (called by gpio_ioctl) -- bypasses the chardev
-      // linehandle_ioctl   -- linehandle_ioctl when userspace does actual io (toggles pin)
-      //   cmd:
-      //   GPIOHANDLE_GET_LINE_VALUES_IOCTL,
-      //   GPIOHANDLE_SET_LINE_VALUES_IOCTL,
-      //   GPIOHANDLE_SET_CONFIG_IOCTL
-      //   arg: user input or output
-      //
+*/
+      /* commands to ioctl below (the std gpio chardev)
+      * not fully implemented
+      * linehandle_create  -- when userspace requests output (called by gpio_ioctl) -- bypasses the chardev
+      * linehandle_ioctl   -- linehandle_ioctl when userspace does actual io (toggles pin)
+      *    cmd:
+      *    GPIOHANDLE_GET_LINE_VALUES_IOCTL,
+      *    GPIOHANDLE_SET_LINE_VALUES_IOCTL,
+      *    GPIOHANDLE_SET_CONFIG_IOCTL
+      *    arg: user input or output
+      */
+/*
       // We could want to use the stock gpio chardev (/dev/gpiochip0 and /dev/gpiochip1) /bc userspace functions use it
-      // this code is not yet complete but it mey be better to use our own passtrhough chardev /dev/gpio-host.
+      // this code is not yet complete and it mey be better to use the stock devices directly.
       case GPIO_CHARDEV_OPEN:	// .open = gpio_chrdev_open
         file = filp_open(tegra_chiplabel[kbuf->chipnum], O_RDWR, 0);
           if (IS_ERR(file)) {
