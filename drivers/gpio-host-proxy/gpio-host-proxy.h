@@ -32,7 +32,7 @@ struct gpio_device {
 #define GPIO_CONFIG          'c'   // set config
 #define GPIO_SET_BY_NAME     'n'   // set config
 
-#define GPIO_REQ             'q'   // generic request
+#define GPIO_REQ             'r'   // generic request
 #define GPIO_FREE            'f'   // free
 
 #define GPIO_TIMESTAMP_CTRL  'C'   // timestamp control
@@ -72,42 +72,44 @@ extern const unsigned char rwl_relaxed_type;
 
 // sizeof is rounded to even 64 bit passhtough writes -- no need to optimise size further on an aarch64
 struct tegra_readl_writel {
+  unsigned char length;       // shift right one bit, most LSB is ignored
   unsigned char signal;       // Note: 'signal' field is overlapping (based on field offset) with signal in struct tegra_gpio_pt
-  unsigned char rwltype;      // type of readl/writel call
-  unsigned char pad[2];       // to get an even mod 64 bit message size
+  unsigned char rwltype;      // type of readl/writel call; std, raw, relaxed
+  unsigned char pad[1];       // to get no word wrap at mod 64 bit message size
   u32 value;
   void * address;
 };
 
 // struct __attribute__((packed)) tegra_gpio_pt {
 struct tegra_gpio_pt {
+  unsigned char chipnum;      // lowest bit is number of gpio chip (gpiochip0 or gpiochip1), top 7 bits are message length
   unsigned char signal;       // defines operation
-  unsigned char chipnum;      // number of gpio chip (gpiochip0 or gpiochip1)
   unsigned char level;        // level to set gpio pin to
   unsigned char offset;       // address offset for gpio pin
-  u32 cmd;                    // gpio_ioctl command
+  // u32 cmd;                    // gpio_ioctl command
   // tegra_gpio_pt_extended p2;          // extended parameters -- in second word of struct
 };
 
-typedef union extended {
+union extended {
   // int level;                // pin level to be set
   unsigned long config;     // pin configuration
   int enable;
   size_t count;             // lineinfo read size
   struct poll_table_struct *poll;
-  enum gpiod_flags dflags ;
+  enum gpiod_flags dflags;
   u64 arg;                  // gpio_ioctl argument (this is interpreted as a pointer)
-} tegra_gpio_pt_extended;
+};
+
+typedef union extended tegra_gpio_pt_extended;
 
 #define MAX_CHIP 2
 
 _Static_assert( sizeof(struct tegra_readl_writel) == 16,
                "tegra_readl_writel size is not 16 bytes." );
 
-_Static_assert( sizeof(struct tegra_gpio_pt) == 8,
-               "tegra_gpio_pt size is not 8 bytes." );
+_Static_assert( sizeof(struct tegra_gpio_pt) == 4,
+               "tegra_gpio_pt size is not 4 bytes." );
 
 _Static_assert( sizeof(tegra_gpio_pt_extended) == 8,
                "tegra_gpio_pt_extended size is not 8 bytes." );
-
 #endif
