@@ -19,7 +19,7 @@ struct gpio_device {
 
 // size of qemu iomem. 
 // Note: Must be synchronized with value in qemu (hw/misc/nvidia_gpio_guest.c)
-#define MEM_SIZE 0x600
+#define MEM_SIZE 0x80
 
 /* values to be used as "signal" values in struct tegra_gpio_pt */
 
