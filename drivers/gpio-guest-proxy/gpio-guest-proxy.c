@@ -90,24 +90,19 @@ void guest_chardev_transfer(void *msg, char msg_len, int *generic_return)
     deb_error("Illegal message length\n"); // msb will be deleted and must be zero
   }
 
-	// deb_debug("\n");
-  #ifdef GPIO_DEBUG_VERBOSE
-    deb_verbose("PT transfer signal is: %c", *((char *)msg + 1));
-    hexDump(DEVICE_NAME, "transfer", msg, msg_len);
-  #endif
+  deb_verbose("PT transfer signal is: %c", *((char *)msg + 1));
+  hexDump(DEVICE_NAME, "PT transfer (to host)", msg, msg_len);
 
 	// Execute the request by copying to io memory
 	memcpy_toio(mem_iova, msg, msg_len);
-  deb_verbose("PT request value is copied, length = %d", msg_len);
+  // deb_verbose("PT request value is copied, length = %d", msg_len);
 
   // deb_verbose("PT generic_return pointer: 0x%llX\n", (long long int)generic_return);
   // check if we expect a return value
   if(generic_return) {
     // Read response from io_buffer
     memcpy_fromio(generic_return, mem_iova, sizeof(*generic_return)); // 32 bits
-    // memcpy_fromio(msg, mem_iova, sizeof(*generic_return));  // copy return value to message buffer  32 bits
-
-    deb_verbose("PT return value 0x%X, is copied", *generic_return);  }
+    hexDump(DEVICE_NAME, "PT transfer (from host)", generic_return, sizeof(*generic_return) );  }
 }
 
 _Static_assert(sizeof(u32) == sizeof(int), "return size assertion failed");
@@ -124,6 +119,7 @@ inline u32 readl_redirect( void * addr, const unsigned char rwltype) {
   rwlmsg.value = 0;  // value field is not used for readl
 
   guest_chardev_transfer(&rwlmsg, sizeof(rwlmsg), &ret);
+  deb_verbose("return value: 0x%X",  ret);
   return ret;
 }
 EXPORT_SYMBOL_GPL(readl_redirect);
@@ -692,18 +688,11 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   */
       /* commands to ioctl below (the std gpio chardev)
       * not fully implemented
-      * linehandle_create  -- when userspace requests output (called by gpio_ioctl) -- bypasses the chardev
-      * linehandle_ioctl   -- linehandle_ioctl when userspace does actual io (toggles pin)
-      *    cmd:
-      *    GPIOHANDLE_GET_LINE_VALUES_IOCTL,
-      *    GPIOHANDLE_SET_LINE_VALUES_IOCTL,
-      *    GPIOHANDLE_SET_CONFIG_IOCTL
-      *    arg: user input or output
-      */
-  /* ioctl is exluded from this version
-      // We could want to use the stock gpio chardev (/dev/gpiochip0 and /dev/gpiochip1) /bc userspace functions use it
-      // this code is not yet complete and it mey be better to use the stock devices directly.
-      case GPIO_CHARDEV_OPEN:	// .open = gpio_chrdev_open
+        file = filp_open(tegra_chiplabel[kbuf->chipnum], O_RDWR, 0);
+          if (IS_ERR(file)) {
+            pr_err("GPIO, failed to open chardev for chip %s: %ld", tegra_chiplabel[kbuf->chipnum], PTR_ERR(file));
+            kfree(kbuf);
+            return -ENOENT;
         file = filp_open(tegra_chiplabel[kbuf->chipnum], O_RDWR, 0);
           if (IS_ERR(file)) {
             pr_err("GPIO, failed to open chardev for chip %s: %ld", tegra_chiplabel[kbuf->chipnum], PTR_ERR(file));

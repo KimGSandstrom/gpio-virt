@@ -344,7 +344,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   */
 	struct gpio_chip *chip;
   #ifdef GPIO_DEBUG
-	  struct gpio_chip *chip_alt;
+	  // struct gpio_chip *chip_alt;
   #endif
 
 	char *buffer_pos = (char *)buffer;
@@ -403,17 +403,17 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
   // make gpio-host type call to gpio
 	deb_verbose("Passthrough in host with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
-  /*
-  #ifdef GPIO_DEBUG
-  deb_verbose("Debug abort\n");
-  return 0;
-  #endif
-  */
 
   switch (kbuf->signal) {
     case GPIO_READL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       deb_verbose("readl debug A\n");
+      if( !access_ok(kbuf_rw->address, sizeof(u32)) ) {
+        deb_info("cannot access address 0x%p", kbuf_rw->address);
+        ret = 0xDEADBEEF;
+        goto debug1;
+      }
+      goto debug1;
       switch (kbuf_rw->rwltype) {
         case RWL_STD:
           ret = (int)readl(kbuf_rw->address);
@@ -425,12 +425,18 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
           ret = (int)readl_relaxed(kbuf_rw->address);
         break;
       }
+      debug1:
       deb_verbose("readl debug B\n");
       goto retval;
     break;
     case GPIO_WRITEL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       deb_verbose("writel debug A\n");
+      if( !access_ok(kbuf_rw->address, sizeof(u32)) ) {
+        deb_info("cannot access address 0x%p", kbuf_rw->address);
+        goto debug2;
+      }
+      goto debug2;
       switch (kbuf_rw->rwltype) {
         case RWL_STD:
           writel(kbuf_rw->value, kbuf_rw->address);
@@ -441,6 +447,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
         case RWL_RELAXED:
           writel_relaxed(kbuf_rw->value, kbuf_rw->address);
         break;
+      debug2:
       deb_verbose("writel debug B\n");
       goto end;
       }
@@ -449,9 +456,15 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   // if switch above is triggered we will either goto retval or goto end
 
   chip = find_chip_by_id(kbuf->chipnum);
+	if(!chip) {
+		pr_err("In GPIO_REQ, chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);
+		kfree(kbuf);
+		return -ENODEV;
+	}
 
   switch (kbuf->signal) {
     case GPIO_REQ:
+			/*
       #ifdef GPIO_DEBUG_VERBOSE
         chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
         if(chip != chip_alt) {
@@ -459,11 +472,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
           chip = chip_alt; // we assume find_chip_by_name is more reliable
         }
       #endif
-      if(!chip) {
-        pr_err("In GPIO_REQ, chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);
-        kfree(kbuf);
-        return -ENODEV;
-      }
+      */
       deb_verbose("GPIO_REQ, using GPIO chip %s, for device %d\n", chip->label, kbuf->chipnum);
       ret = chip->request(chip, kbuf->offset);
 	    goto end;
