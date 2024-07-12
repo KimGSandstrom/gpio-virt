@@ -19,7 +19,10 @@ struct gpio_device {
 
 // size of qemu iomem. 
 // Note: Must be synchronized with value in qemu (hw/misc/nvidia_gpio_guest.c)
-#define MEM_SIZE 0x80
+#define MEM_SIZE 0x18		// mem size in bytes is three 64 bit words
+#define RETURN_OFF 0x10/8	// offset for return value -- two 64 bit words
+// #define RETURN_OFF 0	// == 2, offset for return value is two 64 bit words 
+#define MAX_CHIP 2
 
 /* values to be used as "signal" values in struct tegra_gpio_pt */
 
@@ -40,6 +43,8 @@ struct gpio_device {
 #define GPIO_SUSPEND_CONF    'S'   // suspend configure
 #define GPIO_ADD_PINRANGES   'P'   // add_pin_ranges
 
+#define TEGRA_186_GETBASE    'B'   // pastrhrough of tegra186_gpio_get_base in gpio_tegra186.c
+
 // helpers to identify chip
 #define TEGRA_GPIO_CHIP       0    // tegra-gpio gpio_main_chip
 #define TEGRA_GPIO_AON_CHIP   1    // tegra-gpio-aon gpio_aon_chip
@@ -52,9 +57,9 @@ struct gpio_device {
 #define GPIO_READL            '<'
 #define GPIO_WRITEL           '>'
 
-#define RWL_STD               '0'   // general readl/writeL
-#define RWL_RAW               '1'   // __raw assembler version of readl/writel
-#define RWL_RELAXED           '2'   // __relaxed assembler version of readl/writel
+#define RWL_STD               '8'   // general readl/writeL
+#define RWL_RAW               '9'   // __raw assembler version of readl/writel
+#define RWL_RELAXED           '0'   // __relaxed assembler version of readl/writel
                                     //
 #define GPIO_CHARDEV_OPEN     '1'   // .open = gpio_chrdev_open
 #define GPIO_CHARDEV_IOCTL    '2'   // .unlocked_ioctl = gpio_ioctl -- handles IO operation, get linehandle, set direction
@@ -65,10 +70,12 @@ struct gpio_device {
 #define GPIO_CHARDEV_RELEASE  '7'   // .release = gpio_chrdev_release
 
 
-// Note this extern is also in gpio-proxy.h in the kernel source tree (this proxy code might be in an overlay)
+// Note these externs are also in gpio-proxy.h in the kernel source tree (this proxy code might be in an overlay)
+// make sure values are synchronised (todo: could be fixed)
 extern const unsigned char rwl_std_type;
 extern const unsigned char rwl_raw_type;
 extern const unsigned char rwl_relaxed_type;
+
 
 // sizeof is rounded to even 64 bit passhtough writes -- no need to optimise size further on an aarch64
 struct tegra_readl_writel {
@@ -80,15 +87,32 @@ struct tegra_readl_writel {
   void * address;
 };
 
+_Static_assert( sizeof(struct tegra_readl_writel) == 16,
+               "tegra_readl_writel size is not 16 bytes." );
+
 // struct __attribute__((packed)) tegra_gpio_pt {
 struct tegra_gpio_pt {
   unsigned char chipnum;      // lowest bit is number of gpio chip (gpiochip0 or gpiochip1), top 7 bits are message length
   unsigned char signal;       // defines operation
-  unsigned char level;        // level to set gpio pin to
+  unsigned char level;        // level to set gpio pin to	// note: level and offset must be consecutive because we overload that memory space with an uint for 'pin'
   unsigned char offset;       // address offset for gpio pin
   // u32 cmd;                    // gpio_ioctl command
   // tegra_gpio_pt_extended p2;          // extended parameters -- in second word of struct
 };
+
+_Static_assert( sizeof(struct tegra_gpio_pt) == 4,
+               "tegra_gpio_pt size is not 4 bytes." );
+
+// struct __attribute__((packed)) tegra_gpio_pt {
+struct tegra_getbase_pt {
+  unsigned char chipnum;      // lowest bit is number of gpio chip (gpiochip0 or gpiochip1), top 7 bits are message length
+  unsigned char signal;       // defines operation
+  unsigned char pad[2];
+  unsigned int pin;          // chosen pins to process
+};
+
+_Static_assert( sizeof(struct tegra_getbase_pt) == 8,
+               "tegra_getbase_pt size is not 4 bytes." );
 
 union extended {
   // int level;                // pin level to be set
@@ -101,14 +125,6 @@ union extended {
 };
 
 typedef union extended tegra_gpio_pt_extended;
-
-#define MAX_CHIP 2
-
-_Static_assert( sizeof(struct tegra_readl_writel) == 16,
-               "tegra_readl_writel size is not 16 bytes." );
-
-_Static_assert( sizeof(struct tegra_gpio_pt) == 4,
-               "tegra_gpio_pt size is not 4 bytes." );
 
 _Static_assert( sizeof(tegra_gpio_pt_extended) == 8,
                "tegra_gpio_pt_extended size is not 8 bytes." );
