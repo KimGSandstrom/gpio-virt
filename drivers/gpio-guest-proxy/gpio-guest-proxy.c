@@ -219,7 +219,7 @@ int tegra186_gpio_direction_output_redirect(struct gpio_chip *chip,
   msg.level = level;
   msg.offset = offset;
 
-  guest_chardev_transfer(&msg, sizeof(msg), &ret, sizeof(ret));
+  guest_chardev_transfer(&msg, sizeof(msg), &ret, sizefc4b7562266ffabb716f5c7615ee086374a05d7cof(ret));
   return ret;
 }
 
@@ -837,7 +837,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	memcpy(return_buffer, &ret, return_size);
 	*/
 
-	if ( copy_to_user((void *)kbuf + RETURN_OFF, &ret, sizeof(ret)) ) {
+	if ( copy_to_user((uint64_t *)kbuf + RETURN_OFF, &ret, sizeof(ret)) ) {
 		pr_err("GPIO, copying unsigned int user return value failed\n");
 		kfree(kbuf);
 		return -EFAULT;

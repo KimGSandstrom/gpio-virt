@@ -696,7 +696,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	memcpy(return_buffer, &ret, return_size);
 	*/
 
-	if ( copy_to_user((void *)kbuf + RETURN_OFF, &ret, sizeof(ret)) ) {
+	if ( copy_to_user((uint64_t *)kbuf + RETURN_OFF, &ret, sizeof(ret)) ) {
 		pr_err("GPIO, copying unsigned int user return value failed\n");
 		kfree(kbuf);
 		return -EFAULT;
