@@ -219,7 +219,7 @@ int tegra186_gpio_direction_output_redirect(struct gpio_chip *chip,
   msg.level = level;
   msg.offset = offset;
 
-  guest_chardev_transfer(&msg, sizeof(msg), &ret, sizefc4b7562266ffabb716f5c7615ee086374a05d7cof(ret));
+  guest_chardev_transfer(&msg, sizeof(msg), &ret, sizeof(ret));
   return ret;
 }
 
