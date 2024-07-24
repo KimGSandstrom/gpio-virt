@@ -20,8 +20,8 @@ struct gpio_device {
 // size of qemu iomem. 
 // Note: Must be synchronized with value in qemu (hw/misc/nvidia_gpio_guest.c)
 #define MEM_SIZE 0x18		// mem size in bytes is three 64 bit words
-#define RETURN_OFF 0x10/8	// offset for return value -- two 64 bit words
-// #define RETURN_OFF 0	// == 2, offset for return value is two 64 bit words 
+#define RETURN_OFF 0x10		// offset for return value -- two 64 bit words
+// #define RETURN_OFF 0
 #define MAX_CHIP 2
 
 /* values to be used as "signal" values in struct tegra_gpio_pt */
