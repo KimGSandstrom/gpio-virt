@@ -601,7 +601,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	// print copied user parameters
-	hexDump (DEVICE_NAME, "Chardev input", kbuf, len);
+	hexDump (DEVICE_NAME, "Chardev input" DEVICE_NAME, kbuf, len);
 
 	// make chardev type call to gpio
 	deb_verbose("Passthrough from guest with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
