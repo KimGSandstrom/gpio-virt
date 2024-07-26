@@ -63,7 +63,8 @@ extern inline void writel_execute_base( u32 value, void * addr);
 
 #define RET_SIZE 8  // should be sizeof(uint64_t)
 // static char return_buffer[MEM_SIZE];   // using the same size as the input buffer
-static char return_buffer[RET_SIZE] = {0, 0, 0, 0, 0, 0, 0, 0};
+static uint64_t return_value = 0;
+static char *return_buffer = (char *)&return_value;
 static unsigned int return_size = 0;
 
 _Static_assert(sizeof(uint64_t) == RET_SIZE, "return size assertion for RET_SIZE failed");
@@ -209,7 +210,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
   //		"allowed-clocks", gpio_ares.clock, 0, GPIO_HOST_MAX_CLOCKS_SIZE);
   //
   //	if(gpio_ares.clocks_size <= 0){
-  //		pr_err("No allowed clocks defined\n");
+  //		deb_error("No allowed clocks defined\n");
   //		return EINVAL;
   //	}
   //
@@ -222,7 +223,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
   //		"allowed-resets", gpio_ares.reset, 0, GPIO_HOST_MAX_RESETS_SIZE);
   //
   //	if(gpio_ares.resets_size <= 0){
-  //		pr_err("No allowed resets defined\n");
+  //		deb_error("No allowed resets defined\n");
   //		return EINVAL;
   //	}
   //
@@ -237,7 +238,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
 	if (major_number < 0)
 	{
-		pr_err("could not register number.\n");
+		deb_error("could not register number.\n");
 		return major_number;
 	}
 	deb_info("registered correctly with major number %d", major_number);
@@ -247,7 +248,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 	if (IS_ERR(gpio_host_proxy_class))
 	{ // Check for error and clean up if there is
 		unregister_chrdev(major_number, DEVICE_NAME);
-		pr_err("Failed to register device class\n");
+		deb_error("Failed to register device class\n");
 		return PTR_ERR(gpio_host_proxy_class); // Correct way to return an error on a pointer
 	}
 	deb_info("device class registered correctly\n");
@@ -258,7 +259,7 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 	{ // Clean up if there is an error
 		class_destroy(gpio_host_proxy_class);
 		unregister_chrdev(major_number, DEVICE_NAME);
-		pr_err("Failed to create the device\n");
+		deb_error("Failed to create the device\n");
 		return PTR_ERR(gpio_host_proxy_device);
 	}
 
@@ -307,7 +308,7 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 	int remaining_length = return_size - *offset;
 
 	deb_info("host: read gpio chardev\n");
-	deb_verbose("host: read op, len = %ld, offset = %lld, *return_buffer = 0x%016llX\n", len, *offset, *(uint64_t *)return_buffer);
+	deb_verbose("host: read op, len = %ld, offset = %lld, return_value = 0x%016llX\n", len, *offset, return_value);
 	hexDump (DEVICE_NAME, "Chardev (host read) dump buffer", return_buffer, len);
 	//deb_verbose("host: read op: len = %ld, offset = %lld, *return_value = 0x%016llX\n", len, *offset, *return_value);
 	// hexDump (DEVICE_NAME, "Chardev (host read) dump buffer", (char *)return_value, return_size);
@@ -378,7 +379,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 			len != sizeof(struct tegra_getbase_pt) && 
 			len != sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) &&
 			len != sizeof(struct tegra_readl_writel) )  {
-		pr_err("Illegal chardev data length. Expected %ld, %ld, %ld or %ld, but got %ld\n", 
+		deb_error("Illegal chardev data length. Expected %ld, %ld, %ld or %ld, but got %ld\n", 
 				sizeof(struct tegra_gpio_pt), 
 				sizeof(struct tegra_getbase_pt),
 				sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended),
@@ -389,7 +390,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	if(!offset) {
-	pr_err("offset pointer is NULL, ignoring offset\n");
+	deb_error("offset pointer is NULL, ignoring offset\n");
 	}
 	else {
 		buffer_pos += (*offset);
@@ -397,7 +398,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	kbuf = kmalloc(len, GFP_KERNEL);
 	if ( !kbuf ) {
-		pr_err("kbuf memory allocation failed\n");
+		deb_error("kbuf memory allocation failed\n");
 		len = -ENOMEM;
 		goto exit;
 	}
@@ -406,7 +407,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	// Copy header
 	if (copy_from_user(kbuf, buffer_pos, len)) {
-		pr_err("copy_from_user failed\n");
+		deb_error("copy_from_user failed\n");
 		len = -ENOMEM;
 		goto exit;
 	}
@@ -480,7 +481,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	#endif
 	*/
 	if(!chip) {
-		pr_err("chip pointer's pvalue is unexpectedly NULL for chip %s\n", tegra_chiplabel[kbuf->chipnum]);
+		deb_error("chip pointer's pvalue is unexpectedly NULL for chip\n");
 		len = -ENODEV;
 		goto exit;
 	}
@@ -536,7 +537,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       deb_verbose("GPIO_TIMESTAMP_READ\n");
       ret = chip->timestamp_read(chip, kbuf->offset, (uint64_t *)buffer_pos);	// timestamp is u64, return value as pointer
       if(ret) {
-        pr_err("GPIO_TIMESTAMP_READ error\n");
+        deb_error("GPIO_TIMESTAMP_READ error\n");
         goto end;
       }
       // timestamp_read returns value directly to buffer_pos
@@ -545,7 +546,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     case GPIO_SUSPEND_CONF:
       deb_verbose("GPIO_SUSPEND_CONF\n");
       if(!kbuf_ext) {
-        pr_err("Parameter error in GPIO_SUSPEND_CONF\n");
+        deb_error("Parameter error in GPIO_SUSPEND_CONF\n");
         len = -EINVAL;
         goto exit;
       }
@@ -564,7 +565,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       goto retptr; // 64 bit?
     break;
     default:
-      pr_err("GPIO, Unknown passthough signal\n");
+      deb_error("GPIO, Unknown passthough signal\n");
       len = -EPERM;
       goto exit;
     break;
@@ -605,7 +606,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       case GPIO_CHARDEV_OPEN:	// .open = gpio_chrdev_open
         file = filp_open(tegra_chiplabel[kbuf->chipnum], O_RDWR, 0);
           if (IS_ERR(file)) {
-            pr_err("GPIO, failed to open chardev for chip %s: %ld", tegra_chiplabel[kbuf->chipnum], PTR_ERR(file));
+            deb_error("GPIO, failed to open chardev for chip %s: %ld", tegra_chiplabel[kbuf->chipnum], PTR_ERR(file));
             len = -ENOENT;
             goto exit;
           }
@@ -618,7 +619,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       case GPIO_CHARDEV_IOCTL:	// .unlocked_ioctl = gpio_ioctl
         // user space triggers gpio_ioctl -- it is .unlocked_ioctl on the chardev
         if( !file ) {
-          pr_err("GPIO, chardev file was expected to be open\n");
+          deb_error("GPIO, chardev file was expected to be open\n");
           len = -ENOENT;
           goto exit;
         }
@@ -628,7 +629,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       break;
       case GPIO_CHARDEV_RELEASE: // .release = gpio_chrdev_release
         if( !file ) {
-          pr_err("GPIO, chardev file was expected to be open\n");
+          deb_error("GPIO, chardev file was expected to be open\n");
           len = -ENOENT;
           goto exit;
         }
@@ -638,7 +639,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       break;
       case GPIO_CHARDEV_POLL: // .poll = lineinfo_watch_poll
         if( !file ) {
-          pr_err("GPIO, chardev file was expected to be open\n");
+          deb_error("GPIO, chardev file was expected to be open\n");
           len = -ENOENT;
           goto exit;
         }
@@ -648,27 +649,27 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       break;
       case GPIO_CHARDEV_READ: // .read = lineinfo_watch_read
         if( !file ) {
-          pr_err("GPIO, chardev file was expected to be open\n");
+          deb_error("GPIO, chardev file was expected to be open\n");
           len = -ENOENT;
           goto exit;
         }
         // defined as: static ssize_t lineinfo_watch_read(struct file *file, char __user *buf, size_t count, loff_t *off)
         ret = file->f_op->read(file, buffer_pos, kbuf_ext->count, NULL);		//
         if (ret) {
-          pr_err("Reading lineinfo returned zero\n");
+          deb_error("Reading lineinfo returned zero\n");
           len = -EFAULT;
           goto exit;
         }
       break;
       case GPIO_CHARDEV_OWNER: // .owner = THIS_MODULE
         if (copy_to_user(buffer_pos, file->f_op->owner->name, strlen(file->f_op->owner->name)+1)) {
-          pr_err("GPIO, copying user return value failed\n");
+          deb_error("GPIO, copying user return value failed\n");
           len = -EFAULT;
           goto exit;
         }
       break;
       default:
-        pr_err("GPIO, Unknown passthough signal\n");
+        deb_error("GPIO, Unknown passthough signal\n");
         len = -EPERM;
         goto exit;
       break;
@@ -681,7 +682,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	retptr:
 	return_size = sizeof(ret_ptr);
 	memcpy(return_buffer, &ret_ptr, return_size);
-	deb_verbose("retval pointer (host): 0x%p, 0x%016llX", ret_ptr, (uint64_t)ret_ptr);
+	deb_verbose("retval pointer (host): 0x%p, 0x%016llX", &ret_ptr, return_value);
 	goto end;
 
 	retval:
@@ -690,23 +691,22 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	deb_verbose("retval int (host): 0x%X", ret);
 
 	end:
-	*offset = RETURN_OFF;
-	len = *offset;
-	len += sizeof(return_buffer);
-
-	if (MEM_SIZE >= return_size + RETURN_OFF) {
-		if ( (ret = copy_to_user( (char *)buffer_pos, return_buffer, sizeof(return_buffer))) ) {
-			pr_err("GPIO, copying user return value failed: 0x%08X\n", ret);
-				len = -EFAULT;
-				goto exit;
+	if ( return_size && return_size <= sizeof(return_value) ) {
+		if ( MEM_SIZE >= sizeof(return_value) + RETURN_OFF) {
+			if ( (ret = copy_to_user( (char *)buffer_pos, return_buffer, sizeof(return_value))) ) {
+				deb_error("GPIO, copying user return value failed: 0x%08X\n", ret);
+					len = -EFAULT;
+					goto exit;
+			}
+			// let Qemu detect we wrote a return value
+			len = RETURN_OFF + return_size;
+			deb_verbose("return value size %d copied to buffer (host): 0x%016llX", return_size, return_value);	
+			// hexDump(DEVICE_NAME, "Chardev (host write) dump buffer", return_buffer, MEM_SIZE);
+		} else {
+			len = -EINVAL; // Buffer too small
+			goto exit;
 		}
-		len += sizeof(return_buffer);
-	} else {
-		len = -EINVAL; // Buffer too small
-		goto exit;
 	}
-	// deb_verbose("retval copied to buffer (host): 0x%016llX", *(uint64_t	*)return_buffer);	
-	// hexDump(DEVICE_NAME, "Chardev (host write) dump buffer", return_buffer, MEM_SIZE);
 
 	exit:
 	kfree(kbuf);
@@ -737,7 +737,7 @@ static int __init gpio_host_proxy_init(void)
 
     ret = platform_driver_register(&gpio_host_proxy_driver);
     if (ret != 0) {
-        pr_err("GPIO, Error %d registering gpio host proxy driver", ret);
+        deb_error("GPIO, Error %d registering gpio host proxy driver", ret);
     } else {
         deb_info("GPIO gpio host proxy driver registered successfully\n");
     }
