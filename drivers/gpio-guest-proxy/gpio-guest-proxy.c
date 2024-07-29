@@ -124,7 +124,7 @@ void __iomem *tegra186_gpio_get_base_redirect(unsigned char id, unsigned int pin
   msg.pin = pin;
   
   guest_chardev_transfer(&msg, sizeof(msg), &ret_ptr, sizeof(ret_ptr));
-  deb_verbose(" 0x%p",  ret_ptr);
+  deb_verbose(" id = %d, ptr = 0x%p", id, ret_ptr);
   return ret_ptr;
 }
 
@@ -494,8 +494,8 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 	int remaining_length = return_size - *offset;
 
 	deb_info("guest: read gpio chardev\n");
-	deb_verbose("guest: read op: len = %ld, offset = %lld, return_value = 0x%016llX\n", len, *offset, return_value);
-	hexDump (DEVICE_NAME, "Chardev (guest read) dump buffer", return_buffer, len);
+	deb_verbose("guest: read op: remaining_length = %d, len = %ld, offset = %lld, return_value = 0x%016llX\n", remaining_length, len, *offset, return_value);
+	// hexDump (DEVICE_NAME, "Chardev (guest read) dump buffer", return_buffer, len);
 	//deb_verbose("guest: read op: len = %ld, offset = %lld, *return_value = 0x%016llX\n", len, *offset, return_value);
 	// hexDump (DEVICE_NAME, "Chardev (guest read) dump buffer", (char *)return_value, return_size);
 
@@ -509,11 +509,11 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 		len = remaining_length - *offset;
 	}
 
-	if (copy_to_user(buf + *offset, (char *)return_buffer + *offset, len)) {
+  len = remaining_length;
+	if (copy_to_user(buf, (char *)return_buffer + *offset, len)) {
 		deb_info("guest: failed to copy to user\n");
 		return -EFAULT;
 	}
-
 	*offset += len;
 
 	// Check if all data was copied
@@ -594,6 +594,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 		goto exit;
 	}
 	buffer_pos += RETURN_OFF;
+  return_size -= len;
 
 	// we are not checking if tegra_gpio_pt_extended is used, we only check for memory allocation
 	if( len == (sizeof(struct tegra_gpio_pt) + sizeof(tegra_gpio_pt_extended) ) ) {
@@ -819,16 +820,21 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	retptr:
 	return_size = sizeof(ret_ptr);
-	memcpy(return_buffer, &ret_ptr, return_size);
-	deb_verbose("retval pointer (host): 0x%p, 0x%016llX", &ret_ptr, return_value);
-	goto end;
+	return_value = (uint64_t)ret_ptr;	// casting pointer to uint64_t
+	// memcpy(return_buffer, &ret_ptr, return_size);
+	deb_verbose("retval pointer (guest): %p, 0x%016llX", ret_ptr, return_value);
+	goto ret_end;
 
 	retval:
 	return_size = sizeof(ret_int);
 	memcpy(return_buffer, &ret_int, return_size);
 	deb_verbose("retval int (guest): 0x%X", ret_int);
+	goto ret_end;
+	
+  end:
+  return_size = 0;
 
-	end:
+	ret_end:
 	if ( return_size && return_size <= sizeof(return_value) ) {
 		if ( MEM_SIZE >= sizeof(return_value) + RETURN_OFF) {
 			if ( (ret = copy_to_user( (char *)buffer_pos, return_buffer, sizeof(return_value))) ) {
@@ -836,9 +842,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 					len = -EFAULT;
 					goto exit;
 			}
-			// let qemu detect we wrote a return value
+			// let qemu detect we wrote a return value:wrote
 			len = RETURN_OFF + return_size;
-			deb_verbose("return value size %d copied to buffer (host): 0x%016llX", return_size, return_value);	
+			deb_verbose("return value size %d copied to buffer (guest): 0x%016llX", return_size, return_value);	
 			// hexDump(DEVICE_NAME, "Chardev (host write) dump buffer", return_buffer, MEM_SIZE);
 		} else {
 			len = -EINVAL; // Buffer too small

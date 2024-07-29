@@ -308,8 +308,8 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 	int remaining_length = return_size - *offset;
 
 	deb_info("host: read gpio chardev\n");
-	deb_verbose("host: read op, len = %ld, offset = %lld, return_value = 0x%016llX\n", len, *offset, return_value);
-	hexDump (DEVICE_NAME, "Chardev (host read) dump buffer", return_buffer, len);
+	deb_verbose("host: read op: remaining_length = %d, len = %ld, offset = %lld, return_value = 0x%016llX\n", remaining_length, len, *offset, return_value);
+	// hexDump (DEVICE_NAME, "Chardev (host read) dump buffer", return_buffer, len);
 	//deb_verbose("host: read op: len = %ld, offset = %lld, *return_value = 0x%016llX\n", len, *offset, *return_value);
 	// hexDump (DEVICE_NAME, "Chardev (host read) dump buffer", (char *)return_value, return_size);
 
@@ -323,11 +323,11 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 		len = remaining_length - *offset;
 	}
 
-	if (copy_to_user(buf + *offset, (char *)return_buffer + *offset, len)) {
+  len = remaining_length;
+	if (copy_to_user(buf, (char *)return_buffer + *offset, len)) {
 		deb_info("host: failed to copy to user\n");
 		return -EFAULT;
 	}
-
 	*offset += len;
 
 	// Check if all data was copied
@@ -681,16 +681,21 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	retptr:
 	return_size = sizeof(ret_ptr);
-	memcpy(return_buffer, &ret_ptr, return_size);
-	deb_verbose("retval pointer (host): 0x%p, 0x%016llX", &ret_ptr, return_value);
-	goto end;
+	return_value = (uint64_t)ret_ptr;	// casting pointer to uint64_t
+	// memcpy(return_buffer, &ret_ptr, return_size);
+	deb_verbose("retval pointer (host): %p, 0x%016llX", ret_ptr, return_value);
+	goto ret_end;
 
 	retval:
 	return_size = sizeof(ret_int);
 	memcpy(return_buffer, &ret_int, return_size);
 	deb_verbose("retval int (host): 0x%X", ret);
+	goto ret_end;
+	
+  end:
+  return_size = 0;
 
-	end:
+	ret_end:
 	if ( return_size && return_size <= sizeof(return_value) ) {
 		if ( MEM_SIZE >= sizeof(return_value) + RETURN_OFF) {
 			if ( (ret = copy_to_user( (char *)buffer_pos, return_buffer, sizeof(return_value))) ) {
