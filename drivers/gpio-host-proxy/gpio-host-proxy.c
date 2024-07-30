@@ -360,9 +360,12 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	struct tegra_getbase_pt *kbuf_getbase = NULL;
 	char *buffer_pos = (char *)buffer;
 	// unsigned char *mask;
-	void __iomem *ret_ptr = NULL;
+	void *ret_ptr = 0;
 	int ret_int;  // 32 bits
 	int ret;
+	
+	_Static_assert( sizeof(ret_ptr) == sizeof(return_value),
+               "ret_ptr size does not match return_value" );
 
   /*
 	static struct file *file;
@@ -428,8 +431,11 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   switch (kbuf->signal) {
     case GPIO_READL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
-      if( kbuf_rw->address == 0 || !access_ok(kbuf_rw->address, sizeof(u32)) ) {
-        deb_info("*error* cannot access address 0x%p (probably an address in guest space)", kbuf_rw->address);
+      deb_verbose("readl accessing address 0x%p / 0x%016llX", kbuf_rw->address, (uint64_t)kbuf_rw->address);
+      // if( kbuf_rw->address == 0 || !access_ok(kbuf_rw->address, sizeof(u32)) ) {
+      //  deb_info("*error* cannot access address 0x%p / 0x%016llX (probably an address in guest space)", kbuf_rw->address, (uint64_t)kbuf_rw->address);
+      if( kbuf_rw->address == 0 ) {
+				deb_error("address was null in readl passthrough\n");
         ret_int = 0xDEADBEEF;
         goto readl_addr_error;
       }
@@ -449,8 +455,11 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     break;
     case GPIO_WRITEL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
-      if( kbuf_rw->address == 0 || !access_ok(kbuf_rw->address, sizeof(u32)) ) {
-        deb_info("*error* cannot access address 0x%p (probably an address in guest space)", kbuf_rw->address);
+      deb_verbose("readl accessing address 0x%p / 0x%016llX", kbuf_rw->address, (uint64_t)kbuf_rw->address);
+      // if( kbuf_rw->address == 0 || !access_ok(kbuf_rw->address, sizeof(u32)) ) {
+      //  deb_info("*error* cannot access address 0x%p / 0x%016llX (probably an address in guest space)", kbuf_rw->address, (uint64_t)kbuf_rw->address);
+      if( kbuf_rw->address == 0 ) {
+				deb_error("address was null in writel passthrough\n");
         goto writel_addr_error;
       }
       switch (kbuf_rw->rwltype) {
@@ -463,9 +472,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
         case RWL_RELAXED:
           writel_relaxed(kbuf_rw->value, kbuf_rw->address);
         break;
+      }
       writel_addr_error:
       goto end;
-      }
     break;
   }
   // if switch above is triggered we will either goto retval or goto end
@@ -475,7 +484,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	#ifdef GPIO_DEBUG_VERBOSE
 		chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
 		if(chip != chip_alt) {
-			deb_debug("conflicting chip pointers -- primary %p, alternative %p", chip, chip_alt);
+			deb_debug("conflicting chip pointers -- primary 0x%p, alternative 0x%p", chip, chip_alt);
 			chip = chip_alt; // we assume find_chip_by_name is more reliable
 		}
 	#endif
@@ -562,7 +571,8 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       deb_verbose("TEGRA_186_GETBASE\n");
       kbuf_getbase = (void *)kbuf;
       ret_ptr = tegra186_gpio_get_base_execute(kbuf_getbase->chipnum, kbuf_getbase->pin);
-      goto retptr; // 64 bit?
+      deb_verbose("tegra186_gpio_get_base_execute, chip: %d, pointer: 0x%p / 0x%016llX\n", kbuf_getbase->chipnum, ret_ptr, (uint64_t)ret_ptr);
+      goto retptr; // 64 bit
     break;
     default:
       deb_error("GPIO, Unknown passthough signal\n");
@@ -681,9 +691,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	retptr:
 	return_size = sizeof(ret_ptr);
-	return_value = (uint64_t)ret_ptr;	// casting pointer to uint64_t
+	return_value = (uint64_t)ret_ptr;
 	// memcpy(return_buffer, &ret_ptr, return_size);
-	deb_verbose("retval pointer (host): %p, 0x%016llX", ret_ptr, return_value);
+	deb_verbose("retval pointer (host): 0x%p / 0x%016llX", ret_ptr, return_value);
 	goto ret_end;
 
 	retval:
@@ -705,7 +715,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 			}
 			// let Qemu detect we wrote a return value
 			len = RETURN_OFF + return_size;
-			deb_verbose("return value size %d copied to buffer (host): 0x%016llX", return_size, return_value);	
+			deb_verbose("return value size %d copied to buffer (host): 0x%p / 0x%016llX", return_size, (void *)return_value, return_value);	
 			// hexDump(DEVICE_NAME, "Chardev (host write) dump buffer", return_buffer, MEM_SIZE);
 		} else {
 			len = -EINVAL; // Buffer too small

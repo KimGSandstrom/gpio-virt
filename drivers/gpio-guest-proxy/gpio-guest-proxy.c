@@ -115,8 +115,8 @@ inline void guest_chardev_transfer(void *msg, char msg_len, void *generic_return
     hexDump(DEVICE_NAME, "GPIO: PT transfer (retrieved retval from host)", generic_return, ret_len );  }
 }
 
-void __iomem *tegra186_gpio_get_base_redirect(unsigned char id, unsigned int pin) {
-  void __iomem *ret_ptr = (void __iomem *)0x01234567ABADFACE;  
+void *tegra186_gpio_get_base_redirect(unsigned char id, unsigned int pin) {
+  void *ret_ptr = (void *)0x01234567ABADFACE; // simulating a pointer with a uint64_t
   struct tegra_getbase_pt msg;
 
   msg.signal = TEGRA_186_GETBASE;
@@ -124,7 +124,7 @@ void __iomem *tegra186_gpio_get_base_redirect(unsigned char id, unsigned int pin
   msg.pin = pin;
   
   guest_chardev_transfer(&msg, sizeof(msg), &ret_ptr, sizeof(ret_ptr));
-  deb_verbose(" id = %d, ptr = 0x%p", id, ret_ptr);
+  deb_verbose(" id = %d, ptr = 0x%p / 0x%016llX", id, ret_ptr, (uint64_t)ret_ptr);
   return ret_ptr;
 }
 
@@ -140,7 +140,7 @@ inline u32 readl_redirect( void * addr, const unsigned char rwltype) {
   rwlmsg.value = 0;  // value field is not used for readl
 
   guest_chardev_transfer(&rwlmsg, sizeof(rwlmsg), &ret, sizeof(ret));
-  deb_verbose(" 0x%X",  ret);
+  deb_verbose("addr = 0x%p / 0x%016llX, ret = 0x%X", addr, (uint64_t)addr, ret);
   return ret;
 }
 EXPORT_SYMBOL_GPL(readl_redirect);
@@ -156,6 +156,7 @@ inline void writel_redirect( u32 value, void * addr, const unsigned char rwltype
   rwlmsg.value = value;
 
   guest_chardev_transfer(&rwlmsg, sizeof(rwlmsg), NULL, 0);
+  deb_verbose("addr = 0x%p / 0x%016llX", addr, (uint64_t)addr);
 }
 EXPORT_SYMBOL_GPL(writel_redirect);
 
@@ -543,9 +544,12 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	struct tegra_getbase_pt *kbuf_getbase = NULL;
 	char *buffer_pos = (char *)buffer;
 	// unsigned char *mask;
-	void __iomem *ret_ptr = NULL;
+	void *ret_ptr = NULL;	// simulating a pointer with an uint64_t
 	int ret_int;  // 32 bits
 	int ret;
+
+	_Static_assert( sizeof(ret_ptr) == sizeof(return_value),
+               "ret_ptr size does not match return_value" );
 
   /*
 	static struct file *file;
@@ -613,7 +617,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	#ifdef GPIO_DEBUG_VERBOSE
 		chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
 		if(chip != chip_alt) {
-			deb_debug("conflicting chip pointers -- primary %p, alternative %p", chip, chip_alt);
+			deb_debug("conflicting chip pointers -- primary 0x%p, alternative 0x%p", chip, chip_alt);
 			chip = chip_alt; // we assume find_chip_by_name is more reliable
 		}
 	#endif
@@ -701,7 +705,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
       deb_verbose("TEGRA_186_GETBASE\n");
       kbuf_getbase = (void *)kbuf;
       ret_ptr = tegra186_gpio_get_base_redirect(kbuf_getbase->chipnum, kbuf_getbase->pin);
-      goto retptr; // 64 bit?
+      goto retptr; // 64 bit
     break;
     default:
       deb_error("GPIO, Unknown passthough signal\n");
@@ -820,9 +824,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	retptr:
 	return_size = sizeof(ret_ptr);
-	return_value = (uint64_t)ret_ptr;	// casting pointer to uint64_t
+	return_value = (uint64_t)ret_ptr;
 	// memcpy(return_buffer, &ret_ptr, return_size);
-	deb_verbose("retval pointer (guest): %p, 0x%016llX", ret_ptr, return_value);
+	deb_verbose("retval pointer (guest): 0x%p, 0x%016llX", ret_ptr, return_value);
 	goto ret_end;
 
 	retval:
@@ -844,7 +848,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 			}
 			// let qemu detect we wrote a return value:wrote
 			len = RETURN_OFF + return_size;
-			deb_verbose("return value size %d copied to buffer (guest): 0x%016llX", return_size, return_value);	
+			deb_verbose("return value size %d copied to buffer (guest): 0x%p / 0x%016llX", return_size, (void *)return_value, return_value);	
 			// hexDump(DEVICE_NAME, "Chardev (host write) dump buffer", return_buffer, MEM_SIZE);
 		} else {
 			len = -EINVAL; // Buffer too small
