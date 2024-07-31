@@ -99,7 +99,7 @@ inline void guest_chardev_transfer(void *msg, char msg_len, void *generic_return
   }
 
   deb_verbose("PT transfer signal is: %c", *((char *)msg + 1));
-  hexDump(DEVICE_NAME, "PT transfer (message to host)", msg, msg_len);
+  hexDump(DEVICE_NAME, "GPIO: PT transfer (message from guest)", msg, msg_len);
 
 	// Execute the request by copying to io memory
 	memcpy_toio(mem_iova, msg, msg_len);
@@ -112,7 +112,7 @@ inline void guest_chardev_transfer(void *msg, char msg_len, void *generic_return
     // hexDump(DEVICE_NAME, "GPIO: PT dump mem_iova", (char *)mem_iova, MEM_SIZE);
     // deb_verbose("ret_len = %d\n", ret_len);
     memcpy_fromio(generic_return, (void *)((char *)mem_iova + RETURN_OFF), ret_len); // 32 bits except for tegra186_gpio_get_base_redirect 64 bits
-    hexDump(DEVICE_NAME, "GPIO: PT transfer (retrieved retval from host)", generic_return, ret_len );  }
+    hexDump(DEVICE_NAME, "GPIO: PT transfer (retrieved retval to guest)", generic_return, ret_len );  }
 }
 
 void *tegra186_gpio_get_base_redirect(unsigned char id, unsigned int pin) {
@@ -392,7 +392,7 @@ int tegra_gpio_guest_init(void)
 		deb_error("Failed, gpio_vpa not defined");
     return -1;
 	}
-	deb_info("gpio_vpa: 0x%llx", gpio_vpa);
+	deb_debug("gpio_vpa: 0x%llx", gpio_vpa);
 
 	// Allocate a major number for the device.
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
@@ -401,7 +401,7 @@ int tegra_gpio_guest_init(void)
 		deb_error("could not register number.");
 		return major_number;
 	}
-	deb_info("registered correctly with major number %d", major_number);
+	deb_debug("registered correctly with major number %d", major_number);
 
 	// Register the device class
 	gpio_guest_proxy_class = class_create(THIS_MODULE, CLASS_NAME);
@@ -411,7 +411,7 @@ int tegra_gpio_guest_init(void)
 		deb_error("Failed to register device class\n");
 		return PTR_ERR(gpio_guest_proxy_class); // Correct way to return an error on a pointer
 	}
-	deb_info("device class registered correctly\n");
+	deb_debug("device class registered correctly\n");
 
 	// Register the device driver
 	gpio_guest_proxy_device = device_create(gpio_guest_proxy_class, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
@@ -422,7 +422,7 @@ int tegra_gpio_guest_init(void)
 		deb_error("Failed to create the device\n");
 		return PTR_ERR(gpio_guest_proxy_device);
 	}
-	deb_info("device class created correctly\n"); // Made it! device was initialized
+	deb_debug("device class created correctly\n"); // Made it! device was initialized
 
 	// map iomem
 	mem_iova = ioremap(gpio_vpa, MEM_SIZE);
@@ -432,7 +432,7 @@ int tegra_gpio_guest_init(void)
         return -ENOMEM;
   }
 
-	deb_info("mem_iova: 0x%llx\n", (long long unsigned int)mem_iova);
+	deb_debug("mem_iova: 0x%llx\n", (long long unsigned int)mem_iova);
 
   is_set_up = true;
 	return 0;
@@ -458,7 +458,7 @@ void tegra_gpio_guest_cleanup(void)
 	class_unregister(gpio_guest_proxy_class);						  // unregister the device class
 	class_destroy(gpio_guest_proxy_class);						  // remove the device class
 	unregister_chrdev(major_number, DEVICE_NAME);		  // unregister the major number
-	deb_info("Goodbye from the LKM!\n");
+	deb_info("Goodbye from GPIO passthrough!\n");
 	unregister_chrdev(major_number, DEVICE_NAME);
 
   is_set_up = false;
@@ -488,6 +488,8 @@ static int close(struct inode *inodep, struct file *filep)
 	return 0;
 }
 
+// static DEFINE_MUTEX(chardev_mutex);
+
 /*
  * Reads from device, displays in userspace, and deletes the read data
  */
@@ -501,32 +503,33 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 	// hexDump (DEVICE_NAME, "Chardev (guest read) dump buffer", (char *)return_value, return_size);
 
 	if ( remaining_length < 0 ) {
-		deb_info("guest: unrecoverable length *error*, remaining_length = %d\n", remaining_length);
+		deb_error("guest: unrecoverable length *error*, remaining_length = %d\n", remaining_length);
 		return -EINVAL;
 	}
 
 	if ( len > remaining_length ) {
-		deb_info("guest: recoverable length *error*, len = %ld, remaining_length = %d, return_size = %d\n", len, remaining_length, return_size);
-		len = remaining_length - *offset;
+		deb_error("guest: recoverable length *error*, len = %ld, remaining_length = %d, return_size = %d\n", len, remaining_length, return_size);
+		len = remaining_length;
 	}
 
-  len = remaining_length;
 	if (copy_to_user(buf, (char *)return_buffer + *offset, len)) {
-		deb_info("guest: failed to copy to user\n");
+		deb_error("guest: failed to copy to user\n");
 		return -EFAULT;
 	}
 	*offset += len;
+	remaining_length -= len;
 
 	// Check if all data was copied
 	if (remaining_length > len) {
-		deb_info("guest: not all bytes were copied\n");
-		// If not, set the error status and return the number of bytes actually copied
-		// return -EINVAL;
+		deb_debug("guest: not all bytes were copied\n");
 	}
-	else if (remaining_length == len) {
+	else if (remaining_length == 0) {
+		// read is complete
 		deb_verbose("reset return_size\n");
 		return_size = 0;
+		*offset = 0;
 		memset(return_buffer, 0, RET_SIZE);
+// 		mutex_unlock(&chardev_mutex);	// allow next message
 	}
 
 	// Indicate success by returning the number of bytes read
@@ -576,7 +579,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	if(!offset) {
-	deb_error("offset pointer is NULL, ignoring offset\n");
+		deb_error("offset pointer is NULL, ignoring offset\n");
 	}
 	else {
 		buffer_pos += (*offset);
@@ -607,7 +610,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	// print copied user parameters
-	hexDump (DEVICE_NAME, "Chardev input" DEVICE_NAME, kbuf, len);
+	hexDump (DEVICE_NAME, "Chardev input " DEVICE_NAME, kbuf, len);
 
 	// make chardev type call to gpio
 	deb_verbose("Passthrough from guest with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
@@ -633,7 +636,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     case GPIO_REQ:
       deb_verbose("GPIO_REQ, using GPIO chip %s, for device %d\n", chip->label, kbuf->chipnum);
       ret_int = chip->request(chip, kbuf->offset);
-	    goto end;
+	    goto retval;
     break;
     case GPIO_FREE:
       deb_verbose("GPIO_FREE\n");
@@ -821,8 +824,9 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   */
 
 	goto end;
-
+	
 	retptr:
+//	mutex_lock(&chardev_mutex);	// wait for read
 	return_size = sizeof(ret_ptr);
 	return_value = (uint64_t)ret_ptr;
 	// memcpy(return_buffer, &ret_ptr, return_size);
@@ -830,6 +834,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	goto ret_end;
 
 	retval:
+//	mutex_lock(&chardev_mutex);	// wait for read
 	return_size = sizeof(ret_int);
 	memcpy(return_buffer, &ret_int, return_size);
 	deb_verbose("retval int (guest): 0x%X", ret_int);
@@ -837,10 +842,12 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	
   end:
   return_size = 0;
+  goto exit;
 
 	ret_end:
 	if ( return_size && return_size <= sizeof(return_value) ) {
 		if ( MEM_SIZE >= sizeof(return_value) + RETURN_OFF) {
+			// if the chardev is closed in write(), we lose the return value buffer_pos. That's why 'return_buffer' is a static global var.
 			if ( (ret = copy_to_user( (char *)buffer_pos, return_buffer, sizeof(return_value))) ) {
 				deb_error("GPIO, copying user return value failed: 0x%08X\n", ret);
 					len = -EFAULT;
