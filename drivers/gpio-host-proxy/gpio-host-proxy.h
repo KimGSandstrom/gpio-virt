@@ -103,29 +103,30 @@ struct tegra_gpio_pt {
 _Static_assert( sizeof(struct tegra_gpio_pt) == 4,
                "tegra_gpio_pt size is not 4 bytes." );
 
-// struct __attribute__((packed)) tegra_gpio_pt {
-struct tegra_getbase_pt {
-  unsigned char chipnum;      // lowest bit is number of gpio chip (gpiochip0 or gpiochip1), top 7 bits are message length
-  unsigned char signal;       // defines operation
-  unsigned char pad[2];
-  unsigned int pin;          // chosen pins to process
-};
-
-_Static_assert( sizeof(struct tegra_getbase_pt) == 8,
-               "tegra_getbase_pt size is not 4 bytes." );
-
-union extended {
-  // int level;                // pin level to be set
-  unsigned long config;     // pin configuration
+union pt_extension {
+  // int level;		// pin level to be set
+  unsigned long config; // pin configuration
+  unsigned int pin;	// chosen pins to process
   int enable;
-  size_t count;             // lineinfo read size
+  size_t count;		// lineinfo read size
   struct poll_table_struct *poll;
   enum gpiod_flags dflags;
-  u64 arg;                  // gpio_ioctl argument (this is interpreted as a pointer)
+  u64 arg;		// gpio_ioctl argument (this is interpreted as a pointer)
 };
 
-typedef union extended tegra_gpio_pt_extended;
+_Static_assert( sizeof(union pt_extension) == 8,
+               "tegra_gpio_pt_extension size is not 8 bytes." );
 
-_Static_assert( sizeof(tegra_gpio_pt_extended) == 8,
-               "tegra_gpio_pt_extended size is not 8 bytes." );
+
+// typedef union pt_extension tegra_gpio_pt_extension;
+
+struct tegra_gpio_pt_ext {
+	struct tegra_gpio_pt base;
+	union pt_extension ext;
+};
+
+_Static_assert( sizeof(struct tegra_gpio_pt_ext) == 16,
+               "tegra_gpio_pt_extension size is not 16 bytes." );
+
+
 #endif
