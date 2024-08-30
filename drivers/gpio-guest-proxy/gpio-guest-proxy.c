@@ -354,7 +354,7 @@ int tegra186_gpio_add_pin_ranges_redirect(struct gpio_chip *chip) {
   return ret;
 }
 
-// unpreserve_all_tegrachips also does unhooking ?
+// unpreserve_all_tegrachips also does unhooking
 extern void unpreserve_all_tegrachips(void);
 struct gpio_chip * find_chip_by_id(int id);
 
@@ -458,15 +458,13 @@ EXPORT_SYMBOL_GPL(tegra_gpio_guest_init);
 /*
  * Removes module, sends appropriate message to kernel
  */
-void tegra_gpio_guest_cleanup(void)
+int tegra_gpio_guest_cleanup(void)
 {
 	deb_info("removing module.\n");
 
 	// unmap iomem
 	iounmap((void __iomem*)gpio_vpa);
 
-  // gpio_unhook is called by unpreserve_all_tegrachips()
-  // gpio_unhook()
   // clean up shared memory with stock driver and unhook all functions
   unpreserve_all_tegrachips();
 
@@ -478,11 +476,9 @@ void tegra_gpio_guest_cleanup(void)
 	unregister_chrdev(major_number, DEVICE_NAME);
 
   is_set_up = false;
-	return;
+	return 0;
 }
-
-
-
+EXPORT_SYMBOL_GPL(tegra_gpio_guest_cleanup);
 
 /*
  * Opens device module, sends appropriate message to kernel

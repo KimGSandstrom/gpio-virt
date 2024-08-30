@@ -237,10 +237,10 @@ static int gpio_host_proxy_probe(struct platform_device *pdev)
 	major_number = register_chrdev(0, DEVICE_NAME, &fops);
 	if (major_number < 0)
 	{
-		deb_error("could not register number.\n");
+		deb_error("chardev could not register number.\n");
 		return major_number;
 	}
-	deb_debug("registered correctly with major number %d", major_number);
+	deb_debug("chardev registered correctly with major number %d", major_number);
 
 	// Register the device class
 	gpio_host_proxy_class = class_create(THIS_MODULE, CLASS_NAME);
@@ -277,8 +277,7 @@ static int gpio_host_proxy_remove(struct platform_device *pdev)
 	class_unregister(gpio_host_proxy_class);						  // unregister the device class
 	class_destroy(gpio_host_proxy_class);						  // remove the device class
 	unregister_chrdev(major_number, DEVICE_NAME);		  // unregister the major number
-	deb_info("Goodbye from the GPIO passthrough\n");
-	unregister_chrdev(major_number, DEVICE_NAME);
+	deb_info("Goodbye from GPIO passthrough\n");
 	return 0;
 }
 
@@ -761,7 +760,22 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	return len; // return length of read data
 }
 
-/* module creation -- see also gpio_host_proxy_probe and gpio_host_proxy_remove */
+int tegra_gpio_host_init(void)
+{
+  struct platform_device *pdev = NULL;   // not used -- param is for the kernel module version of code 
+  return gpio_host_proxy_probe(pdev);
+}
+EXPORT_SYMBOL_GPL(tegra_gpio_host_init);
+
+int tegra_gpio_host_cleanup(void)
+{
+  struct platform_device *pdev = NULL;   // not used -- param is for the kernel module version of code
+  return gpio_host_proxy_remove(pdev);
+}
+EXPORT_SYMBOL_GPL(tegra_gpio_host_cleanup);
+
+/* proxy driver as module removed
+ * module creation -- see also gpio_host_proxy_probe and gpio_host_proxy_remove
 
 static const struct of_device_id gpio_host_proxy_ids[] = {
 	{ .compatible = "nvidia,gpio-host-proxy" },
@@ -803,3 +817,5 @@ static void __exit gpio_host_proxy_exit(void)
 
 module_init(gpio_host_proxy_init);
 module_exit(gpio_host_proxy_exit);
+
+*/
