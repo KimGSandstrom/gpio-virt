@@ -7,7 +7,7 @@
 #include <linux/gpio/consumer.h>	// for gpiod_flags
 
 // as a workaround this struct is copied here from drivers/gpio/gpiolib.h in kernel-5.10
-// including the original header file does not work becaue proxy drivers are in an overlay 
+// including the original header file does not work becaue proxy drivers are in an overlay
 // and relative paths will change (kernel-5.10 will be renamed)
 // #include ../kernel-5.10/drivers/gpio/gpiolib.h
 // this copied struct is incomplete and subset of the "real" one
@@ -17,7 +17,7 @@ struct gpio_device {
   // a huge number of members are removed here -- do not "sizeof" this struct !!!
 };
 
-// size of qemu iomem. 
+// size of qemu iomem.
 // Note: Must be synchronized with value in qemu (hw/misc/nvidia_gpio_guest.c)
 #define MEM_SIZE 0x18		// mem size in bytes is three 64 bit words
 #define RETURN_OFF 0x10		// offset for return value -- two 64 bit words

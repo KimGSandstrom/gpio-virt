@@ -381,13 +381,13 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	deb_info("## writeing %zu bytes to chardev ##", len);
 
-	if( len != sizeof(struct tegra_gpio_pt) && 
-			len != sizeof(struct tegra_gpio_pt_ext) && 
+	if( len != sizeof(struct tegra_gpio_pt) &&
+			len != sizeof(struct tegra_gpio_pt_ext) &&
 			len != sizeof(struct tegra_readl_writel)  )  {
-		deb_error("Illegal chardev data length. Expected %ld, %ld or %ld, but got %ld\n", 
-				sizeof(struct tegra_gpio_pt), 
+		deb_error("Illegal chardev data length. Expected %ld, %ld or %ld, but got %ld\n",
+				sizeof(struct tegra_gpio_pt),
 				sizeof(struct tegra_gpio_pt_ext),
-				sizeof(struct tegra_readl_writel), 
+				sizeof(struct tegra_readl_writel),
 				len);
 		hexDump (DEVICE_NAME, "Chardev (host) input error", buffer, len);
 		return -ENOEXEC; // kbuf not allocated yet
@@ -689,7 +689,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   */
 
 	goto noretval;
-	
+
 	ret64:
 	mutex_lock(&chardev_mutex);	// wait for read
 	return_size = sizeof(ret_64);
@@ -716,7 +716,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	memcpy(return_buffer, &ret_int, return_size);
 	deb_verbose("retval int (host): 0x%X", ret_int);
 	goto ret_end;
-	
+
 	noretval:
 	return_size = 0;
 	goto exit;
@@ -744,7 +744,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 			}
 			// let Qemu detect we wrote a return value
 			len = RETURN_OFF + return_size;
-			deb_verbose("return value size %d copied to buffer (host): 0x%p / 0x%016llX", return_size, (void *)return_value, return_value);	
+			deb_verbose("return value size %d copied to buffer (host): 0x%p / 0x%016llX", return_size, (void *)return_value, return_value);
 			// hexDump(DEVICE_NAME, "Chardev (host write) dump buffer", return_buffer, MEM_SIZE);
 		} else {
 			len = -EINVAL; // Buffer too small
@@ -753,7 +753,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	}
 
 	unlock:
-	mutex_unlock(&chardev_mutex);	// allow next write in case retval is received before chardev close and read() is never called  
+	mutex_unlock(&chardev_mutex);	// allow next write in case retval is received before chardev close and read() is never called 
 
 	exit:
 	kfree(kbuf);
@@ -762,7 +762,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 int tegra_gpio_host_init(void)
 {
-  struct platform_device *pdev = NULL;   // not used -- param is for the kernel module version of code 
+  struct platform_device *pdev = NULL;   // not used -- param is for the kernel module version of code
   return gpio_host_proxy_probe(pdev);
 }
 EXPORT_SYMBOL_GPL(tegra_gpio_host_init);
