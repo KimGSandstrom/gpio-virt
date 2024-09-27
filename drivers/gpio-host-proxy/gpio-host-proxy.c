@@ -481,20 +481,22 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   // if switch above is triggered we will either goto retval or goto noretval
 
   chip = find_chip_by_id(kbuf->chipnum);
-  /*
-	#ifdef GPIO_DEBUG_VERBOSE
-		chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
-		if(chip != chip_alt) {
-			deb_debug("conflicting chip pointers -- primary 0x%p, alternative 0x%p", chip, chip_alt);
-			chip = chip_alt; // we assume find_chip_by_name is more reliable
-		}
-	#endif
-	*/
-	if(!chip) {
-		deb_error("chip pointer's pvalue is unexpectedly NULL for chip\n");
-		len = -ENODEV;
-		goto exit;
-	}
+
+/*
+#ifdef GPIO_DEBUG_VERBOSE
+  chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
+  if(chip != chip_alt) {
+    deb_debug("conflicting chip pointers -- primary 0x%p, alternative 0x%p", chip, chip_alt);
+    chip = chip_alt; // we assume find_chip_by_name is more reliable
+  }
+#endif
+*/
+
+  if(!chip) {
+	deb_error("chip pointer's pvalue is unexpectedly NULL for chip\n");
+	len = -ENODEV;
+	goto exit;
+  }
 
   switch (kbuf->signal) {
     case GPIO_REQ:
