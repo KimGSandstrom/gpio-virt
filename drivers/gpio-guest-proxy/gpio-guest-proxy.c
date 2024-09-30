@@ -491,7 +491,7 @@ int tegra_gpio_guest_cleanup(void)
 	deb_info("Goodbye from GPIO passthrough!\n");
 	unregister_chrdev(major_number, DEVICE_NAME);
 
-  is_set_up = false;
+	is_set_up = false;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(tegra_gpio_guest_cleanup);
