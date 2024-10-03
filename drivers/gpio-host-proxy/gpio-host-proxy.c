@@ -364,6 +364,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	char *buffer_pos = (char *)buffer;
 	void *ret_ptr = NULL;
 	uint64_t ret_64;
+	// long int ret_long;  // 64 bits
 	int ret_int;  // 32 bits
 	int ret;
 
@@ -718,6 +719,15 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	memcpy(return_buffer, &ret_int, return_size);
 	deb_verbose("retval int (host): 0x%X", ret_int);
 	goto ret_end;
+
+  /*
+	retlong:
+	mutex_lock(&chardev_mutex);	// wait for read
+	return_size = sizeof(ret_long);
+	memcpy(return_buffer, &ret_long, return_size);
+	deb_verbose("retval long (host): 0x%lX", ret_long);
+	goto ret_end;
+  */
 
 	noretval:
 	return_size = 0;
