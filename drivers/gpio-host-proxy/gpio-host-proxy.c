@@ -350,7 +350,7 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
 	return len;
 }
 
-void __iomem *tegra186_gpio_get_base_execute(int id, unsigned int pin); // implemented in ./kernel-5.10/drivers/gpio/gpio-tegra186.c
+extern void __iomem *tegra186_gpio_get_base_execute(int id, unsigned int pin); // implemented in ./kernel-5.10/drivers/gpio/gpio-tegra186.c
 
 /*
  * Writes to the device
