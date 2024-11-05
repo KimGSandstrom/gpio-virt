@@ -24,6 +24,7 @@ struct gpio_device {
 // #define RETURN_OFF 0
 #define MAX_CHIP 2
 
+
 /* values to be used as "signal" values in struct tegra_gpio_pt */
 
 // Note: signals with message size of 8 have a signal value greater than or equal to ascii char 'A'
@@ -43,7 +44,9 @@ struct gpio_device {
 #define GPIO_SUSPEND_CONF    'S'   // suspend configure
 #define GPIO_ADD_PINRANGES   'P'   // add_pin_ranges
 
-#define TEGRA_186_GETBASE    'B'   // pastrhrough of tegra186_gpio_get_base in gpio_tegra186.c
+#define TEGRA_186_GETBASE    'B'   // pasthrough of tegra186_gpio_get_base in gpio_tegra186.c
+
+#define DEBUG_EXCEPTIONS     '~'   // Switch to pass debug parameters to kernel  -- uint32_t bytes 2-3 in kbuf.
 
 // helpers to identify chip
 #define TEGRA_GPIO_CHIP       0    // tegra-gpio gpio_main_chip
