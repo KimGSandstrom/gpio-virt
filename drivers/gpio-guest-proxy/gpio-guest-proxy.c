@@ -370,6 +370,8 @@ int tegra186_gpio_add_pin_ranges_redirect(struct gpio_chip *chip) {
   return ret;
 }
 
+extern uint32_t debug_exceptions;
+
 struct gpio_chip * find_chip_by_id(int id);
 
 /**
@@ -639,6 +641,14 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
 	// print copied user parameters
 	hexDump (DEVICE_NAME, "Chardev input " DEVICE_NAME, kbuf, len);
+
+  // a debug hack
+  if(kbuf->signal == DEBUG_EXCEPTIONS) {
+    deb_verbose("DEBUG_EXCEPTIONS\n");
+    debug_exceptions = *(uint32_t *)((char *)kbuf+2); // use level and offset for debug signals
+    goto exit;
+  }
+
 
 	// make chardev type call to gpio
 	deb_verbose("Passthrough from guest with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
