@@ -370,8 +370,6 @@ int tegra186_gpio_add_pin_ranges_redirect(struct gpio_chip *chip) {
   return ret;
 }
 
-extern uint32_t debug_exceptions;
-
 struct gpio_chip * find_chip_by_id(int id);
 
 /**
@@ -573,6 +571,10 @@ static ssize_t read(struct file *filp, char *buf, size_t len, loff_t *offset) {
  * Writes to the device
  */
 
+#ifdef GPIO_DEBUG_VERBOSE
+extern void set_debug_exceptions(uint32_t exceptions);
+#endif
+
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	struct tegra_gpio_pt *kbuf = NULL;
@@ -642,13 +644,14 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	// print copied user parameters
 	hexDump (DEVICE_NAME, "Chardev input " DEVICE_NAME, kbuf, len);
 
+  #ifdef GPIO_DEBUG_VERBOSE
   // a debug hack
   if(kbuf->signal == DEBUG_EXCEPTIONS) {
     deb_verbose("DEBUG_EXCEPTIONS\n");
-    debug_exceptions = *(uint32_t *)((char *)kbuf+2); // use level and offset for debug signals
+    set_debug_exceptions (*(uint32_t *)((char *)kbuf+2)); // use level and offset for debug signals
     goto exit;
   }
-
+  #endif
 
 	// make chardev type call to gpio
 	deb_verbose("Passthrough from guest with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
