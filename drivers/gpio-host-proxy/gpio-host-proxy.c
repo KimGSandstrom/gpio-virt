@@ -356,6 +356,8 @@ extern void __iomem *tegra186_gpio_get_base_execute(int id, unsigned int pin); /
  * Writes to the device
  */
 
+extern struct tegra_gpio_host_values host_values[];
+
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
 	struct tegra_gpio_pt *kbuf = NULL;
@@ -367,6 +369,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	// long int ret_long;  // 64 bits
 	int ret_int;  // 32 bits
 	int ret;
+        int i;
 
 	_Static_assert( sizeof(ret_ptr) == sizeof(return_value),
                "ret_ptr size does not match return_value" );
@@ -431,6 +434,36 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 	deb_verbose("Passthrough in host with signal: %c, Chip %d, Offset %d, Level %d", kbuf->signal, kbuf->chipnum, kbuf->offset, kbuf->level);
 
   switch (kbuf->signal) {
+    case GPIO_GET_HOST_VALUES:
+			for ( i = 10; !host_values[kbuf->chipnum].initialised ;i++ )
+				msleep(100);
+			if ( !host_values[kbuf->chipnum].initialised ) {
+			  deb_info("**error** Could not read host_values");
+			  ret_ptr = NULL;
+			  goto retptr;
+			}
+				 
+      switch (kbuf->offset) { // we overload offset for defining the variable
+				case GPIO_HOST_VALUE_SECURE:
+					ret_ptr = host_values[kbuf->chipnum].secure;
+				break;
+				case GPIO_HOST_VALUE_BASE:
+					ret_ptr = host_values[kbuf->chipnum].base;
+				break;
+				/*
+				case GPIO_HOST_VALUE_GTE_REGS:
+					retptr = host_values[kbuf->chipnum]->gte_regs;
+				break;
+				case GPIO_HOST_VALUE_GPIO_RVAL:
+					retptr = host_values[kbuf->chipnum]->gpio_rval;
+				break;
+				*/
+				default:
+					ret_ptr = NULL;
+				break;
+     }
+     goto retptr;
+    break;
     case GPIO_READL:
       kbuf_rw = (struct tegra_readl_writel *)kbuf;
       deb_verbose("readl accessing address 0x%p / 0x%016llX", kbuf_rw->address, (uint64_t)kbuf_rw->address);

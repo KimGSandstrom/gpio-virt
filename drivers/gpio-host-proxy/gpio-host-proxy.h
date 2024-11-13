@@ -131,5 +131,19 @@ struct tegra_gpio_pt_ext {
 _Static_assert( sizeof(struct tegra_gpio_pt_ext) == 16,
                "tegra_gpio_pt_extension size is not 16 bytes." );
 
+#define GPIO_GET_HOST_VALUES		'H' // signal code
+#define GPIO_HOST_VALUE_SECURE				1
+#define GPIO_HOST_VALUE_BASE					2
+// #define GPIO_HOST_VALUE_GTE_REGS		3
+// #define GPIO_HOST_VALUE_GPIO_RVAL	4
+
+struct tegra_gpio_host_values {
+  void __iomem *secure;
+  void __iomem *base;
+  // void __iomem *gte_regs;
+  // struct tegra_gpio_saved_register *gpio_rval;
+  bool initialised;
+};
+
 
 #endif

@@ -114,6 +114,20 @@ inline void guest_chardev_transfer(void *msg, char msg_len, void *generic_return
     hexDump(DEVICE_NAME, "GPIO: PT transfer (retrieved retval to guest)", generic_return, ret_len );  }
 }
 
+void *gpio_get_host_values(unsigned char id, unsigned int h_val) {
+  void *ret_ptr = (void *)0x01234567ABADFACE; // simulating a pointer with a uint64_t
+  struct tegra_gpio_pt msg;
+
+  deb_verbose("\n");
+  msg.signal = GPIO_GET_HOST_VALUES;
+  msg.chipnum = id;
+  msg.level = 0;
+  msg.offset = h_val;
+ 
+  guest_chardev_transfer(&msg, sizeof(msg), &ret_ptr, sizeof(ret_ptr));
+  return ret_ptr;
+}
+
 void *tegra186_gpio_get_base_redirect(unsigned char id, unsigned int pin) {
   void *ret_ptr = (void *)0x01234567ABADFACE; // simulating a pointer with a uint64_t
   struct tegra_gpio_pt_ext msg;
