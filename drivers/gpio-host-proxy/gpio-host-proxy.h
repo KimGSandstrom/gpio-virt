@@ -72,14 +72,6 @@ struct gpio_device {
 #define GPIO_CHARDEV_SEEK     '6'   // .llseek = no_llseek
 #define GPIO_CHARDEV_RELEASE  '7'   // .release = gpio_chrdev_release
 
-
-// Note these externs are also in gpio-proxy.h in the kernel source tree (this proxy code might be in an overlay)
-// make sure values are synchronised (todo: could be fixed)
-extern const unsigned char rwl_std_type;
-extern const unsigned char rwl_raw_type;
-extern const unsigned char rwl_relaxed_type;
-
-
 // sizeof is rounded to even 64 bit passhtough writes -- no need to optimise size further on an aarch64
 struct tegra_readl_writel {
   unsigned char length;       // shift right one bit, most LSB is ignored
@@ -130,6 +122,20 @@ struct tegra_gpio_pt_ext {
 
 _Static_assert( sizeof(struct tegra_gpio_pt_ext) == 16,
                "tegra_gpio_pt_extension size is not 16 bytes." );
+
+#define GPIO_GET_HOST_VALUES		'H' // signal code
+#define GPIO_HOST_VALUE_SECURE				1
+#define GPIO_HOST_VALUE_BASE					2
+// #define GPIO_HOST_VALUE_GTE_REGS		3
+// #define GPIO_HOST_VALUE_GPIO_RVAL	4
+
+struct tegra_gpio_host_values {
+  void __iomem *secure;
+  void __iomem *base;
+  // void __iomem *gte_regs;
+  // struct tegra_gpio_saved_register *gpio_rval;
+  bool initialised;
+};
 
 
 #endif
