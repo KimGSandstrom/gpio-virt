@@ -72,14 +72,6 @@ struct gpio_device {
 #define GPIO_CHARDEV_SEEK     '6'   // .llseek = no_llseek
 #define GPIO_CHARDEV_RELEASE  '7'   // .release = gpio_chrdev_release
 
-
-// Note these externs are also in gpio-proxy.h in the kernel source tree (this proxy code might be in an overlay)
-// make sure values are synchronised (todo: could be fixed)
-extern const unsigned char rwl_std_type;
-extern const unsigned char rwl_raw_type;
-extern const unsigned char rwl_relaxed_type;
-
-
 // sizeof is rounded to even 64 bit passhtough writes -- no need to optimise size further on an aarch64
 struct tegra_readl_writel {
   unsigned char length;       // shift right one bit, most LSB is ignored

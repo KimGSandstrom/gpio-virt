@@ -21,11 +21,6 @@
 #include <linux/namei.h>
 #include <linux/delay.h>
 
-#include "../gpio-host-proxy/gpio-host-proxy.h"
-const unsigned char rwl_std_type     = RWL_STD;
-const unsigned char rwl_raw_type     = RWL_RAW;
-const unsigned char rwl_relaxed_type = RWL_RELAXED;
-
 #define DEVICE_NAME "gpio-host"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
 
@@ -52,6 +47,12 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 #else
   #define deb_verbose(fmt, ...)
 #endif
+
+#include <gpio-proxy.h>
+#include "../gpio-host-proxy/gpio-host-proxy.h"
+const unsigned char rwl_std_type     = RWL_STD;
+const unsigned char rwl_raw_type     = RWL_RAW;
+const unsigned char rwl_relaxed_type = RWL_RELAXED;
 
 extern struct gpio_chip *find_chip_by_name(const char *);
 extern struct gpio_chip *find_chip_by_id(int);
@@ -356,7 +357,7 @@ extern void __iomem *tegra186_gpio_get_base_execute(int id, unsigned int pin); /
  * Writes to the device
  */
 
-extern struct tegra_gpio_host_values host_values[];
+extern struct tegra_gpio_local_values local_values[];
 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
@@ -435,27 +436,27 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
   switch (kbuf->signal) {
     case GPIO_GET_HOST_VALUES:
-			for ( i = 10; !host_values[kbuf->chipnum].initialised ;i++ )
+			for ( i = 10; !local_values[kbuf->chipnum].initialised ;i++ )
 				msleep(100);
-			if ( !host_values[kbuf->chipnum].initialised ) {
-			  deb_info("**error** Could not read host_values");
+			if ( !local_values[kbuf->chipnum].initialised ) {
+			  deb_info("**error** Could not read local_values");
 			  ret_ptr = NULL;
 			  goto retptr;
 			}
 				 
       switch (kbuf->offset) { // we overload offset for defining the variable
 				case GPIO_HOST_VALUE_SECURE:
-					ret_ptr = host_values[kbuf->chipnum].secure;
+					ret_ptr = local_values[kbuf->chipnum].secure;
 				break;
 				case GPIO_HOST_VALUE_BASE:
-					ret_ptr = host_values[kbuf->chipnum].base;
+					ret_ptr = local_values[kbuf->chipnum].base;
 				break;
 				/*
 				case GPIO_HOST_VALUE_GTE_REGS:
-					retptr = host_values[kbuf->chipnum]->gte_regs;
+					retptr = local_values[kbuf->chipnum]->gte_regs;
 				break;
 				case GPIO_HOST_VALUE_GPIO_RVAL:
-					retptr = host_values[kbuf->chipnum]->gpio_rval;
+					retptr = local_values[kbuf->chipnum]->gpio_rval;
 				break;
 				*/
 				default:
