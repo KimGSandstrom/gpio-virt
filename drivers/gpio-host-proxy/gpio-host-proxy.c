@@ -50,6 +50,7 @@ MODULE_VERSION("0.0");						///< A version number to inform users
 
 #include <gpio-proxy.h>
 #include "../gpio-host-proxy/gpio-host-proxy.h"
+
 const unsigned char rwl_std_type     = RWL_STD;
 const unsigned char rwl_raw_type     = RWL_RAW;
 const unsigned char rwl_relaxed_type = RWL_RELAXED;
@@ -436,7 +437,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
   switch (kbuf->signal) {
     case GPIO_GET_HOST_VALUES:
-			for ( i = 10; !local_values[kbuf->chipnum].initialised ;i++ )
+			for ( i = 20; !local_values[kbuf->chipnum].initialised; i++ )
 				msleep(100);
 			if ( !local_values[kbuf->chipnum].initialised ) {
 			  deb_info("**error** Could not read local_values");

@@ -23,8 +23,6 @@
 #include <linux/namei.h>
 #include <linux/delay.h>
 
-#include "../gpio-host-proxy/gpio-host-proxy.h"
-
 #define DEVICE_NAME "gpio-guest"   // Device name.
 #define CLASS_NAME  "chardrv"	  // < The device class -- this is a character device driver
 
@@ -63,6 +61,9 @@ MODULE_VERSION("0.0");						///< A version number to inform users
   #define deb_verbose(fmt, ...)
   #define hexDump(...)
 #endif
+
+#include <gpio-proxy.h>
+#include "../gpio-host-proxy/gpio-host-proxy.h"
 
 // MEM_SIZE defined in gpio-host-proxy.h
 static volatile void __iomem  *mem_iova = NULL;
