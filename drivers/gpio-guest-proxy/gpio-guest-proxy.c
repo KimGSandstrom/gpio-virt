@@ -23,6 +23,7 @@
 #include <linux/namei.h>
 #include <linux/delay.h>
 
+#include <gpio-proxy.h>
 #include "../gpio-host-proxy/gpio-host-proxy.h"
 
 #define DEVICE_NAME "gpio-guest"   // Device name.
