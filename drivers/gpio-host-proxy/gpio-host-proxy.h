@@ -46,8 +46,6 @@ struct gpio_device {
 
 #define TEGRA_186_GETBASE    'B'   // pasthrough of tegra186_gpio_get_base in gpio_tegra186.c
 
-#define DEBUG_EXCEPTIONS     '~'   // Switch to pass debug parameters to kernel  -- uint32_t bytes 2-3 in kbuf.
-
 // helpers to identify chip
 #define TEGRA_GPIO_CHIP       0    // tegra-gpio gpio_main_chip
 #define TEGRA_GPIO_AON_CHIP   1    // tegra-gpio-aon gpio_aon_chip

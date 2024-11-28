@@ -48,6 +48,7 @@ MODULE_VERSION("0.0");						///< A version number to inform users
   #define deb_verbose(fmt, ...)
 #endif
 
+
 #include <gpio-proxy.h>
 #include "../gpio-host-proxy/gpio-host-proxy.h"
 
@@ -358,7 +359,7 @@ extern void __iomem *tegra186_gpio_get_base_execute(int id, unsigned int pin); /
  * Writes to the device
  */
 
-extern struct tegra_gpio_local_values local_values[];
+extern struct tegra_gpio_local_values gpio_local_values[];
 
 static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t *offset)
 {
@@ -437,27 +438,27 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
   switch (kbuf->signal) {
     case GPIO_GET_HOST_VALUES:
-			for ( i = 20; !local_values[kbuf->chipnum].initialised; i++ )
+			for ( i = 20; !gpio_local_values[kbuf->chipnum].initialised; i++ )
 				msleep(100);
-			if ( !local_values[kbuf->chipnum].initialised ) {
-			  deb_info("**error** Could not read local_values");
+			if ( !gpio_local_values[kbuf->chipnum].initialised ) {
+			  deb_info("**error** Could not read gpio_local_values");
 			  ret_ptr = NULL;
 			  goto retptr;
 			}
 				 
       switch (kbuf->offset) { // we overload offset for defining the variable
 				case GPIO_HOST_VALUE_SECURE:
-					ret_ptr = local_values[kbuf->chipnum].secure;
+					ret_ptr = gpio_local_values[kbuf->chipnum].secure;
 				break;
 				case GPIO_HOST_VALUE_BASE:
-					ret_ptr = local_values[kbuf->chipnum].base;
+					ret_ptr = gpio_local_values[kbuf->chipnum].base;
 				break;
 				/*
 				case GPIO_HOST_VALUE_GTE_REGS:
-					retptr = local_values[kbuf->chipnum]->gte_regs;
+					retptr = gpio_local_values[kbuf->chipnum]->gte_regs;
 				break;
 				case GPIO_HOST_VALUE_GPIO_RVAL:
-					retptr = local_values[kbuf->chipnum]->gpio_rval;
+					retptr = gpio_local_values[kbuf->chipnum]->gpio_rval;
 				break;
 				*/
 				default:
