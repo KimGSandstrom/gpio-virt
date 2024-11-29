@@ -29,8 +29,8 @@ MODULE_AUTHOR("Kim Sandström");					///< The author -- visible when you use mod
 MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module");	///< The description -- see modinfo
 MODULE_VERSION("0.0");						///< A version number to inform users
 
-#define GPIO_DEBUG
-#define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
+// #define GPIO_DEBUG
+// #define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
 
 #ifdef GPIO_DEBUG
   #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__, kbasename(__FILE__), ##__VA_ARGS__)
@@ -383,7 +383,7 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
   */
 	struct gpio_chip *chip;
   #ifdef GPIO_DEBUG_VERBOSE
-	  // struct gpio_chip *chip_alt;
+	struct gpio_chip *chip_alt;
   #endif
 
 	deb_info("## writeing %zu bytes to chardev ##", len);
@@ -519,7 +519,6 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
 
   chip = find_chip_by_id(kbuf->chipnum);
 
-/*
 #ifdef GPIO_DEBUG_VERBOSE
   chip_alt = find_chip_by_name(tegra_chiplabel[kbuf->chipnum]);
   if(chip != chip_alt) {
@@ -527,7 +526,6 @@ static ssize_t write(struct file *filep, const char *buffer, size_t len, loff_t 
     chip = chip_alt; // we assume find_chip_by_name is more reliable
   }
 #endif
-*/
 
   if(!chip) {
 	deb_error("chip pointer's pvalue is unexpectedly NULL for chip\n");

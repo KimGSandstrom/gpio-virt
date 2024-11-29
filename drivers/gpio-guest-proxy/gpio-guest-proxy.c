@@ -31,8 +31,8 @@ MODULE_AUTHOR("Kim Sandström");					///< The author -- visible when you use mod
 MODULE_DESCRIPTION("NVidia GPIO Guest Proxy Kernel Module");	///< The description -- see modinfo
 MODULE_VERSION("0.0");						///< A version number to inform users
 
-#define GPIO_DEBUG
-#define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
+// #define GPIO_DEBUG
+// #define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
 
 #ifdef GPIO_DEBUG
   /*
