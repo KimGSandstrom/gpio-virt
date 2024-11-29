@@ -29,8 +29,8 @@ MODULE_AUTHOR("Kim Sandström");					///< The author -- visible when you use mod
 MODULE_DESCRIPTION("NVidia GPIO Host Proxy Kernel Module");	///< The description -- see modinfo
 MODULE_VERSION("0.0");						///< A version number to inform users
 
-#define GPIO_DEBUG
-#define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
+// #define GPIO_DEBUG
+// #define GPIO_DEBUG_VERBOSE       // also activates deb_verbose commands
 
 #ifdef GPIO_DEBUG
   #define deb_info(fmt, ...)     printk(KERN_INFO "GPIO func \'%s\' in file \'%s\' -- " fmt, __func__, kbasename(__FILE__), ##__VA_ARGS__)
